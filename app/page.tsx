@@ -85,7 +85,7 @@ export default function App() {
   const [editingJob, setEditingJob] = useState<JobItem | null>(null);
 
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 9, 1)); // ต.ค. 2026
+  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 9, 1));
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
 
   // Cutoff Billing Date State
@@ -491,7 +491,7 @@ export default function App() {
       tax_amount: currentTax,
       net_income: currentNet,
       job_count: activeBilledJobs.length,
-      job_ids: activeBilledJobs.map(j => j.id)
+      jobIds: activeBilledJobs.map(j => j.id)
     };
 
     await supabase.from('billing_cycles').insert([newCycle]);
@@ -531,7 +531,7 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-[#f0f2f5] pb-28 font-sans select-none">
       
-      {/* 1. Top Bar ปรับไม่ให้เบียดบนมือถือ */}
+      {/* Top Bar */}
       <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-3 sm:px-4 py-2.5 sm:py-3.5">
         <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-2">
           <div className="min-w-0 flex-1">
@@ -570,126 +570,7 @@ export default function App() {
 
       <div className="max-w-xl md:max-w-2xl mx-auto px-3 sm:px-4 pt-4 sm:pt-5 space-y-3.5 sm:space-y-4">
 
-        {/* 2. ช่องโน้ต (ปรับ responsive ไม่บีบอัดบนจอมือถือ) */}
-        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
-          <div className="flex items-center justify-between gap-2">
-            <button 
-              onClick={toggleNotesCollapse}
-              className="min-w-0 text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider hover:text-red-300 transition text-left"
-            >
-              <FileText size={15} className="shrink-0" /> 
-              <span className="truncate">บันทึกข้อความ & ลิงก์</span>
-              <span className="text-[10px] bg-[#1c1f28] text-[#8e94a4] px-1.5 py-0.2 rounded border border-[#262933] font-mono shrink-0">
-                {filteredNotes.length}
-              </span>
-            </button>
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] text-[#6b7280] hidden sm:inline">
-                {isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
-              </span>
-              <button 
-                onClick={toggleNotesCollapse}
-                className="p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition"
-                title={isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
-              >
-                {isNotesCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-              </button>
-            </div>
-          </div>
-
-          {/* พับเก็บ: Quick links */}
-          {isNotesCollapsed && (
-            <div className="pt-2 border-t border-[#1c1f28]">
-              {filteredNotes.length > 0 ? (
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  <span className="text-[10px] text-[#6b7280] shrink-0 font-medium">ลิงก์ด่วน:</span>
-                  {filteredNotes.map(n => {
-                    const urlMatch = n.content.match(/(https?:\/\/[^\s]+)/);
-                    if (urlMatch) {
-                      return (
-                        <a
-                          key={n.id}
-                          href={urlMatch[0]}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="shrink-0 inline-flex items-center gap-1 text-[11px] bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-900/50 px-2.5 py-1 rounded-xl transition font-medium"
-                          title={n.content}
-                        >
-                          <ExternalLink size={11} /> {n.title}
-                        </a>
-                      );
-                    }
-                    return (
-                      <span key={n.id} className="shrink-0 text-[11px] bg-[#181a22] text-[#8e94a4] px-2.5 py-1 rounded-xl border border-[#262933]">
-                        {n.title}
-                      </span>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-[11px] text-[#555a66]">(ไม่มีบันทึก)</p>
-              )}
-            </div>
-          )}
-
-          {/* กางออก: ฟอร์มโน้ต responsive ไม่ซ้อนเบียด */}
-          {!isNotesCollapsed && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
-                <input 
-                  type="date"
-                  value={noteDate}
-                  onChange={(e) => setNoteDate(e.target.value)}
-                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-2.5 py-2 text-xs text-white focus:border-red-500 focus:outline-none"
-                />
-                <input 
-                  type="text" 
-                  placeholder="หัวข้อบันทึก..."
-                  value={noteTitle}
-                  onChange={(e) => setNoteTitle(e.target.value)}
-                  className="w-full sm:col-span-2 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="รายละเอียด หรือวางลิงก์ https://docs.google.com/..."
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                  className="min-w-0 flex-1 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
-                />
-                <button onClick={handleAddNote} className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition shadow-md">
-                  เพิ่มโน้ต
-                </button>
-              </div>
-
-              {filteredNotes.length > 0 && (
-                <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
-                  {filteredNotes.map(n => (
-                    <div key={n.id} className="bg-[#181a22] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2">
-                      <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-red-300">{n.title}</span>
-                          <span className="text-[10px] text-[#6b7280] font-mono">{n.date}</span>
-                        </div>
-                        <div className="text-[#a6adbb] text-[12px] leading-relaxed break-words">
-                          {renderTextWithLinks(n.content)}
-                        </div>
-                      </div>
-                      <button onClick={() => handleDeleteNote(n.id)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* 3. ยอดรวมนาที & รายได้สุทธิ */}
+        {/* 1. ยอดรวมนาที & รายได้สุทธิ (ย้ายมาอยู่อันดับ 1 บนสุด) */}
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
           <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 shadow-sm">
             <span className="text-xs text-[#8e94a4] flex items-center gap-1.5 font-medium">
@@ -711,7 +592,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 4. ช่องเป้าหมาย (ปรับปุ่มและหัวข้อไม่ให้บีบอัดตกบรรทัด) */}
+        {/* 2. ช่องเป้าหมายเดือนนี้ (ตามมาเป็นอันดับ 2) */}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex justify-between items-center gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -751,7 +632,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* พับเก็บ: แถบเป้าหมายแบบกระชับ */}
+          {/* พับเก็บ: Slim Bar */}
           {isTargetCollapsed && (
             <div className="pt-2 border-t border-[#1c1f28] flex justify-between items-center text-xs gap-2">
               <div className="flex items-center gap-1.5 shrink-0">
@@ -768,7 +649,7 @@ export default function App() {
             </div>
           )}
 
-          {/* กางออก: ข้อมูลความคืบหน้า */}
+          {/* กางออก: รายละเอียดเป้าหมาย */}
           {!isTargetCollapsed && (
             <>
               {isEditingTarget ? (
@@ -832,7 +713,7 @@ export default function App() {
             </>
           )}
 
-          {/* คู่มือวิธีคำนวณ */}
+          {/* สูตรคำนวณ */}
           {showCalcGuide && (
             <div className="pt-3 border-t border-[#262933] space-y-3 bg-[#0a0b0e] p-3 rounded-xl border border-red-900/40 text-xs">
               <div className="flex justify-between items-center text-red-400 font-bold">
@@ -847,13 +728,13 @@ export default function App() {
                 <div>
                   <span className="font-bold text-white block">1. อัตราสุทธิต่อนาที:</span>
                   <p className="text-[11px] font-mono text-[#8e94a4] mt-0.5">
-                    นาทีละ 15 บาท หัก 3% (0.45 บ.) = <span className="text-red-400 font-bold">14.55 บาท/นาที</span>
+                    15 บาท หัก 3% (0.45 บ.) = <span className="text-red-400 font-bold">14.55 บาท/นาที</span>
                   </p>
                 </div>
                 <div>
-                  <span className="font-bold text-white block">2. หานาทีที่ต้องทำทั้งหมด:</span>
+                  <span className="font-bold text-white block">2. หานาทีที่ต้องทำ:</span>
                   <div className="bg-[#12141a] p-2 rounded-lg font-mono text-[11px] text-red-300 border border-[#262933] my-1">
-                    เป้าหมาย ÷ 14.55
+                    ยอดเงินที่ยังขาด ÷ 14.55
                   </div>
                 </div>
                 <div>
@@ -868,6 +749,125 @@ export default function App() {
                 </div>
               </div>
             </div>
+          )}
+        </section>
+
+        {/* 3. ช่องโน้ต & ลิงก์เดดไลน์ (ตามมาเป็นอันดับ 3) */}
+        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <button 
+              onClick={toggleNotesCollapse}
+              className="min-w-0 text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider hover:text-red-300 transition text-left"
+            >
+              <FileText size={15} className="shrink-0" /> 
+              <span className="truncate">บันทึกข้อความ & ลิงก์เดดไลน์</span>
+              <span className="text-[10px] bg-[#1c1f28] text-[#8e94a4] px-1.5 py-0.2 rounded border border-[#262933] font-mono shrink-0">
+                {filteredNotes.length}
+              </span>
+            </button>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="text-[10px] text-[#6b7280] hidden sm:inline">
+                {isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
+              </span>
+              <button 
+                onClick={toggleNotesCollapse}
+                className="p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition"
+                title={isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
+              >
+                {isNotesCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+              </button>
+            </div>
+          </div>
+
+          {/* พับเก็บ: Quick links */}
+          {isNotesCollapsed && (
+            <div className="pt-2 border-t border-[#1c1f28]">
+              {filteredNotes.length > 0 ? (
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                  <span className="text-[10px] text-[#6b7280] shrink-0 font-medium">ลิงก์ด่วน:</span>
+                  {filteredNotes.map(n => {
+                    const urlMatch = n.content.match(/(https?:\/\/[^\s]+)/);
+                    if (urlMatch) {
+                      return (
+                        <a
+                          key={n.id}
+                          href={urlMatch[0]}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 inline-flex items-center gap-1 text-[11px] bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-900/50 px-2.5 py-1 rounded-xl transition font-medium"
+                          title={n.content}
+                        >
+                          <ExternalLink size={11} /> {n.title}
+                        </a>
+                      );
+                    }
+                    return (
+                      <span key={n.id} className="shrink-0 text-[11px] bg-[#181a22] text-[#8e94a4] px-2.5 py-1 rounded-xl border border-[#262933]">
+                        {n.title}
+                      </span>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-[#555a66]">(ไม่มีบันทึก)</p>
+              )}
+            </div>
+          )}
+
+          {/* กางออก: ฟอร์มโน้ต */}
+          {!isNotesCollapsed && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
+                <input 
+                  type="date"
+                  value={noteDate}
+                  onChange={(e) => setNoteDate(e.target.value)}
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-2.5 py-2 text-xs text-white focus:border-red-500 focus:outline-none"
+                />
+                <input 
+                  type="text" 
+                  placeholder="หัวข้อบันทึก..."
+                  value={noteTitle}
+                  onChange={(e) => setNoteTitle(e.target.value)}
+                  className="w-full sm:col-span-2 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="รายละเอียด หรือวางลิงก์ เช่น https://docs.google.com/..."
+                  value={noteContent}
+                  onChange={(e) => setNoteContent(e.target.value)}
+                  className="min-w-0 flex-1 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                />
+                <button onClick={handleAddNote} className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition shadow-md">
+                  เพิ่มโน้ต
+                </button>
+              </div>
+
+              {filteredNotes.length > 0 && (
+                <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
+                  {filteredNotes.map(n => (
+                    <div key={n.id} className="bg-[#181a22] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-red-300">{n.title}</span>
+                          <span className="text-[10px] text-[#6b7280] font-mono">{n.date}</span>
+                        </div>
+                        <div className="text-[#a6adbb] text-[12px] leading-relaxed break-words">
+                          {renderTextWithLinks(n.content)}
+                        </div>
+                      </div>
+                      <button onClick={() => handleDeleteNote(n.id)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -886,7 +886,7 @@ export default function App() {
                     placeholder="เช่น GS273_55_76 หรือ DW_12_90"
                     value={quickInput}
                     onChange={(e) => setQuickInput(e.target.value)}
-                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#454954] focus:border-red-500 focus:outline-none"
+                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
                   />
                 </div>
                 <div>
@@ -908,7 +908,7 @@ export default function App() {
                   placeholder="ตัวอย่าง: GS273  29-10-26  30-10-26  31-10-26  1-11-26  2-11-26"
                   value={sheetPaste}
                   onChange={(e) => setSheetPaste(e.target.value)}
-                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none"
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
                 />
               </div>
 
@@ -920,7 +920,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* รายการคิวงาน พร้อมการแยกสีอ่อน GS / DW ไม่ฉูดฉาด */}
+            {/* รายการคิวงาน - Movie Card สไตล์ Discord Mini-Table ในโทนสีดาร์กเดิม */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
                 <span className="text-xs font-bold text-[#8e94a4] uppercase">คิวงานปัจจุบัน ({pendingJobs.length})</span>
@@ -937,85 +937,95 @@ export default function App() {
                   return (
                     <div 
                       key={job.id} 
-                      className={`rounded-2xl p-3.5 sm:p-4 transition border ${
+                      className={`bg-[#12141a] rounded-2xl p-3.5 sm:p-4 transition border ${
                         isDW 
-                          ? 'bg-[#151318]/90 border-amber-500/20' 
-                          : 'bg-[#10141d]/90 border-sky-500/20'
+                          ? 'border-amber-500/25 hover:border-amber-500/40' 
+                          : 'border-cyan-500/25 hover:border-cyan-500/40'
                       } ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
+                      {/* ส่วนหัวการ์ด: รหัส, ตอน, เวลา, ลิงก์ Google Drive และปุ่มจัดการ */}
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                            {/* ป้ายแท็ก GS / DW สีอ่อนซอฟต์โทน แยกแยะรหัสง่ายและไม่แสบตา */}
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* แท็ก GS / DW สีอ่อนซอฟต์โทน แยกง่ายสบายตา */}
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
                               isDW 
-                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/25' 
-                                : 'bg-sky-500/10 text-sky-300 border-sky-500/25'
+                                ? 'bg-amber-400/10 text-amber-300 border-amber-400/30' 
+                                : 'bg-cyan-400/10 text-cyan-300 border-cyan-400/30'
                             }`}>
                               {isDW ? 'DW' : 'GS'}
                             </span>
-                            <span className="font-extrabold text-white text-base sm:text-lg truncate">{job.title}</span>
-                            {job.episode && <span className="text-[11px] sm:text-xs bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md shrink-0">ตอน {job.episode}</span>}
+
+                            <span className="font-extrabold text-white text-base sm:text-lg tracking-wide truncate">
+                              {job.title}
+                            </span>
+
+                            {job.episode && (
+                              <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium">
+                                ตอน {job.episode}
+                              </span>
+                            )}
                           </div>
                           
                           <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            <span className="text-sm font-bold text-red-400">
-                              {job.minutes} นาที <span className="text-xs font-normal text-[#8e94a4]">(฿{(job.minutes * 15).toLocaleString()})</span>
+                            <span className="text-xs font-bold text-red-400">
+                              {job.minutes} นาที <span className="text-[#8e94a4] font-normal">(฿{(job.minutes * 15).toLocaleString()})</span>
                             </span>
+
                             {job.drive_url && (
                               <a 
                                 href={job.drive_url} 
                                 target="_blank" 
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] bg-red-950/50 hover:bg-red-900/60 text-red-300 border border-red-800/50 px-2 py-0.5 rounded-lg transition"
+                                className="inline-flex items-center gap-1 text-[11px] bg-[#1c1f28] hover:bg-[#262a36] text-red-300 border border-[#262933] px-2.5 py-0.5 rounded-lg transition font-medium"
                               >
-                                <FolderOpen size={12} /> เปิด Drive
+                                <FolderOpen size={12} className="text-amber-400" /> Google Drive
                               </a>
                             )}
                           </div>
                         </div>
 
+                        {/* เมนูด้านขวา */}
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                          <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg transition" title="แก้ไขงาน">
+                          <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg border border-[#262933] transition" title="แก้ไขงาน">
                             <Edit3 size={14} />
                           </button>
                           <button 
                             onClick={() => toggleJobBilling(job)}
                             className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border font-semibold whitespace-nowrap transition ${
-                              job.isIncludedInBilling ? 'border-red-500/50 text-red-400 bg-red-950/40' : 'border-[#262933] text-[#555a66] bg-[#181a22]'
+                              job.isIncludedInBilling 
+                                ? 'border-red-500/50 text-red-400 bg-red-950/40 hover:bg-red-950/60' 
+                                : 'border-[#262933] text-[#555a66] bg-[#181a22] hover:bg-[#262a36]'
                             }`}
                           >
                             {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
                           </button>
-                          <button onClick={() => handleDeleteJob(job.id)} className="p-1.5 text-[#555a66] hover:text-red-400">
+                          <button onClick={() => handleDeleteJob(job.id)} className="p-1.5 text-[#555a66] hover:text-red-400 transition" title="ลบงาน">
                             <Trash2 size={15} />
                           </button>
                         </div>
                       </div>
 
-                      {/* 5 วันที่ขั้นตอนการทำงาน */}
-                      <div className="grid grid-cols-5 gap-1 sm:gap-2 mt-3.5 pt-3.5 border-t border-[#1c1f28] text-center">
-                        <div className="text-[#6b7280]">
-                          <div className="text-[10px]">เกลา</div>
-                          <div className="text-xs font-mono mt-0.5">{formatToDisplayDate(job.date_glao)}</div>
+                      {/* ตารางแสดง 5 วันที่ขั้นตอนทำงานแบบ Discord Mini-Table ในโทนดาร์กเดิม */}
+                      <div className="mt-3 pt-2.5 border-t border-[#1c1f28]">
+                        <div className="grid grid-cols-5 text-center text-[10px] uppercase font-bold text-[#6b7280] pb-1">
+                          <div>เกลา</div>
+                          <div>พากย์</div>
+                          <div className="text-red-400 font-extrabold">มิกซ์</div>
+                          <div>ซับ</div>
+                          <div className="text-amber-400 font-extrabold">เดดไลน์</div>
                         </div>
-                        <div className="text-[#6b7280]">
-                          <div className="text-[10px]">พากย์</div>
-                          <div className="text-xs font-mono mt-0.5">{formatToDisplayDate(job.date_pak)}</div>
-                        </div>
-                        <div className="bg-red-950/60 border border-red-500 rounded-xl py-1 text-red-200">
-                          <div className="text-[10px] font-bold text-red-400">มิกซ์</div>
-                          <div className="text-xs font-black font-mono mt-0.5">{formatToDisplayDate(job.date_mix)}</div>
-                        </div>
-                        <div className="text-[#6b7280]">
-                          <div className="text-[10px]">ซับ</div>
-                          <div className="text-xs font-mono mt-0.5">{formatToDisplayDate(job.date_sub || '')}</div>
-                        </div>
-                        <div className="text-amber-400/90 font-medium">
-                          <div className="text-[10px]">เดดไลน์</div>
-                          <div className="text-xs font-mono mt-0.5">{formatToDisplayDate(job.date_deadline)}</div>
+                        <div className="grid grid-cols-5 text-center text-xs font-mono bg-[#0a0b0e] rounded-xl py-1.5 border border-[#262933]">
+                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_glao)}</div>
+                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_pak)}</div>
+                          <div className="text-red-200 font-bold bg-red-950/70 border border-red-500/60 rounded-lg mx-0.5 py-0.5">
+                            {formatToDisplayDate(job.date_mix)}
+                          </div>
+                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_sub || '')}</div>
+                          <div className="text-amber-300 font-bold">{formatToDisplayDate(job.date_deadline)}</div>
                         </div>
                       </div>
+
                     </div>
                   );
                 })
@@ -1113,8 +1123,8 @@ export default function App() {
                           )}
                         </div>
                         <div className="text-[11px] mt-0.5">
-                          {j.date_mix === selectedCalDate && <span className="text-red-400 font-bold">วันมิกซ์งาน </span>}
-                          {j.date_deadline === selectedCalDate && <span className="text-amber-400 font-bold">เดดไลน์ส่งงาน </span>}
+                          {j.date_mix === selectedCalDate && <span className="text-red-400 font-bold">วันมิกซ์ </span>}
+                          {j.date_deadline === selectedCalDate && <span className="text-amber-400 font-bold">เดดไลน์ส่ง </span>}
                           {j.date_glao === selectedCalDate && <span className="text-[#8e94a4]">วันเกลา </span>}
                           {j.date_pak === selectedCalDate && <span className="text-[#8e94a4]">วันพากย์ </span>}
                           {j.date_sub === selectedCalDate && <span className="text-[#8e94a4]">วันซับ </span>}
@@ -1179,7 +1189,7 @@ export default function App() {
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                                 isDW 
                                   ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' 
-                                  : 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+                                  : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
                               }`}>
                                 {isDW ? 'DW' : 'GS'}
                               </span>
@@ -1245,12 +1255,12 @@ export default function App() {
                   {analyticsData.totalAllMins > 0 ? (
                     <div className="space-y-2">
                       <div className="flex justify-between text-xs">
-                        <span className="text-sky-400 font-bold">GS: {analyticsData.gsMins} นาที ({analyticsData.gsCount} เรื่อง)</span>
+                        <span className="text-cyan-400 font-bold">GS: {analyticsData.gsMins} นาที ({analyticsData.gsCount} เรื่อง)</span>
                         <span className="text-amber-400 font-bold">DW: {analyticsData.dwMins} นาที ({analyticsData.dwCount} เรื่อง)</span>
                       </div>
                       <div className="w-full bg-[#1c1f28] h-3.5 rounded-full overflow-hidden flex">
                         <div 
-                          className="bg-sky-500 transition-all duration-500" 
+                          className="bg-cyan-500 transition-all duration-500" 
                           style={{ width: `${(analyticsData.gsMins / analyticsData.totalAllMins) * 100}%` }} 
                         />
                         <div 
@@ -1520,7 +1530,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. Bottom Nav Bar 4 แท็บ */}
+      {/* Bottom Nav Bar */}
       <nav className="fixed bottom-0 inset-x-0 bg-[#12141a]/95 border-t border-[#262933] px-4 py-3 z-40 backdrop-blur">
         <div className="grid grid-cols-4 max-w-xl md:max-w-2xl mx-auto">
           <button 
