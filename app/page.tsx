@@ -36,7 +36,7 @@ import {
   parseQuickCode, 
   parseSheetRow, 
   formatToDisplayDate, 
-  isDateString
+  isDateString 
 } from '@/lib/parser';
 
 interface NoteItem {
@@ -51,7 +51,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'queue' | 'calendar' | 'table' | 'billing'>('queue');
   const [tableSubView, setTableSubView] = useState<'table' | 'analytics'>('table');
   const [loading, setLoading] = useState(true);
-  
+
   // Workspaces
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
   const [selectedWs, setSelectedWs] = useState<string>('ทีมซีรีส์จีน (GS/DW)');
@@ -60,13 +60,13 @@ export default function App() {
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
-  
-  // สถานะการย่อ/ขยายกล่อง (บันทึกลงเครื่องอัตโนมัติ)
+
+  // State ยุบ/ขยาย กล่องโน้ต และเป้าหมาย
   const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isTargetCollapsed, setIsTargetCollapsed] = useState(false);
-  const [showCalcGuide, setShowCalcGuide] = useState(false); // แสดงการ์ดอธิบายสูตร
+  const [showCalcGuide, setShowCalcGuide] = useState(false);
 
-  // เป้าหมายรายได้ของเดือนนี้ (Net Target)
+  // เป้าหมายรายได้สุทธิ (Net Target)
   const [monthlyTarget, setMonthlyTarget] = useState<number>(14700);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [targetInput, setTargetInput] = useState('14700');
@@ -94,7 +94,7 @@ export default function App() {
   // Custom Modal
   const [modalMessage, setModalMessage] = useState<{ title: string; desc: string } | null>(null);
 
-  // โหลดค่าเป้าหมายและสถานะย่อขยายจาก localStorage
+  // โหลดค่าเป้าหมายและสถานะพับเก็บจาก localStorage
   useEffect(() => {
     const savedTarget = localStorage.getItem('mix_monthly_target');
     if (savedTarget) {
@@ -104,8 +104,10 @@ export default function App() {
         setTargetInput(val.toString());
       }
     }
+
     const savedNotesCol = localStorage.getItem('mix_notes_collapsed');
     if (savedNotesCol) setIsNotesCollapsed(savedNotesCol === 'true');
+
     const savedTargetCol = localStorage.getItem('mix_target_collapsed');
     if (savedTargetCol) setIsTargetCollapsed(savedTargetCol === 'true');
   }, []);
@@ -131,7 +133,7 @@ export default function App() {
     }
   };
 
-  // ดึงข้อมูลทั้งหมดจาก Supabase
+  // ดึงข้อมูลจริงจาก Supabase
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -228,7 +230,7 @@ export default function App() {
   };
 
   const handleAddWorkspace = async () => {
-    const name = prompt('ใส่ชื่อทีมใหม่:');
+    const name = prompt('ชื่อทีม / Workspace ใหม่:');
     if (name && name.trim() && !workspaces.includes(name.trim())) {
       const trimmed = name.trim();
       await supabase.from('workspaces').insert([{ name: trimmed }]);
@@ -253,10 +255,10 @@ export default function App() {
 
   const handleDeleteWorkspace = async () => {
     if (workspaces.length <= 1) {
-      setModalMessage({ title: 'ไม่สามารถลบได้', desc: 'ต้องมีอย่างน้อย 1 ทีมในระบบ' });
+      setModalMessage({ title: 'ไม่สามารถลบได้', desc: 'ต้องมี Workspace อย่างน้อย 1 ทีม' });
       return;
     }
-    if (confirm(`ต้องการลบทีม "${selectedWs}" และข้อมูลทั้งหมดในทีมนี้หรือไม่?`)) {
+    if (confirm(`ยืนยันการลบทีม "${selectedWs}" พร้อมข้อมูลทั้งหมดหรือไม่?`)) {
       await supabase.from('workspaces').delete().eq('name', selectedWs);
       await supabase.from('jobs').delete().eq('workspace', selectedWs);
       await supabase.from('notes').delete().eq('workspace', selectedWs);
@@ -273,7 +275,6 @@ export default function App() {
     let finalEpisode = '';
     let finalMinutes = 0;
     let finalDriveUrl = driveUrlInput.trim();
-
     let dates = {
       date_glao: '',
       date_pak: '',
@@ -304,10 +305,10 @@ export default function App() {
       }
     }
 
-    if (isDateString(finalTitle)) finalTitle = 'งานใหม่';
+    if (isDateString(finalTitle)) finalTitle = 'งานไม่มีชื่อ';
 
     if (!finalTitle) {
-      setModalMessage({ title: 'ข้อมูลไม่ครบถ้วน', desc: 'กรุณากรอกรหัสเรื่อง หรือวางข้อมูลตาราง' });
+      setModalMessage({ title: 'ข้อมูลไม่ครบ', desc: 'กรุณากรอกรหัสงานหรือข้อมูลจากชีท' });
       return;
     }
 
@@ -324,12 +325,13 @@ export default function App() {
     };
 
     const { error } = await supabase.from('jobs').insert([payload]);
+
     if (!error) {
       setQuickInput('');
       setDriveUrlInput('');
       setSheetPaste('');
       fetchData();
-      setModalMessage({ title: 'บันทึกสำเร็จ', desc: `บันทึก ${finalTitle} ขึ้น Supabase เรียบร้อยแล้ว` });
+      setModalMessage({ title: 'สำเร็จ', desc: `เพิ่มงาน ${finalTitle} เข้าสู่ระบบแล้ว` });
     } else {
       setModalMessage({ title: 'เกิดข้อผิดพลาด', desc: error.message });
     }
@@ -386,7 +388,7 @@ export default function App() {
     await supabase.from('notes').delete().eq('id', id);
   };
 
-  // ข้อมูลที่กรองตามทีม
+  // สรุปยอด
   const filteredJobs = useMemo(() => jobs.filter(j => j.workspace === selectedWs), [jobs, selectedWs]);
   const filteredNotes = useMemo(() => notes.filter(n => n.workspace === selectedWs), [notes, selectedWs]);
   const filteredCycles = useMemo(() => billingCycles.filter(b => b.workspace === selectedWs), [billingCycles, selectedWs]);
@@ -399,8 +401,7 @@ export default function App() {
   const currentTax = currentGross * 0.03;
   const currentNet = currentGross - currentTax;
 
-  // ===================== คำนวณเป้าหมายรายได้ (Net Target) =====================
-  // 1 นาที = 15 บ. หัก 3% (0.45) = 14.55 บ. สุทธิ
+  // ===================== คำนวณเป้าหมาย (Net Target) =====================
   const netRatePerMin = 15 * 0.97; // 14.55
   const totalMinsNeeded = Math.ceil(monthlyTarget / netRatePerMin);
   const remainingMinsNeeded = Math.max(0, totalMinsNeeded - currentTotalMins);
@@ -416,16 +417,15 @@ export default function App() {
 
   const remainingMoviesEst = Math.ceil(remainingMinsNeeded / avgMovieLength);
 
-  // ===================== คำนวณกราฟและสถิติ (Analytics) =====================
+  // ===================== สถิติ (Analytics) =====================
   const analyticsData = useMemo(() => {
     let gsMins = 0;
     let gsCount = 0;
     let dwMins = 0;
     let dwCount = 0;
-
-    let periodEarly = 0; // 1-10
-    let periodMid = 0;   // 11-20
-    let periodLate = 0;  // 21-31
+    let periodEarly = 0;
+    let periodMid = 0;
+    let periodLate = 0;
 
     filteredJobs.forEach(j => {
       const isDW = j.title.toUpperCase().startsWith('DW');
@@ -449,14 +449,13 @@ export default function App() {
     });
 
     const totalAllMins = gsMins + dwMins;
-    const mostWorkedType = gsMins >= dwMins ? 'GS (มีทำซับ)' : 'DW (ไม่มีซับ)';
-
+    const mostWorkedType = gsMins >= dwMins ? 'GS (ซีรีส์ทั่วไป)' : 'DW (ซีรีส์พรีเมียม)';
     const maxPeriodMins = Math.max(periodEarly, periodMid, periodLate);
     let mostActivePeriodName = 'ยังไม่มีข้อมูล';
     if (maxPeriodMins > 0) {
-      if (maxPeriodMins === periodEarly) mostActivePeriodName = 'ช่วงต้นเดือน (วันที่ 1–10)';
-      else if (maxPeriodMins === periodMid) mostActivePeriodName = 'ช่วงกลางเดือน (วันที่ 11–20)';
-      else mostActivePeriodName = 'ช่วงปลายเดือน (วันที่ 21–31)';
+      if (maxPeriodMins === periodEarly) mostActivePeriodName = 'ต้นเดือน (1-10)';
+      else if (maxPeriodMins === periodMid) mostActivePeriodName = 'กลางเดือน (11-20)';
+      else mostActivePeriodName = 'ปลายเดือน (21-31)';
     }
 
     return {
@@ -476,13 +475,12 @@ export default function App() {
 
   const handleCloseBillingCycle = async () => {
     if (activeBilledJobs.length === 0) {
-      setModalMessage({ title: 'ไม่มีงานที่เลือก', desc: 'ไม่มีงานที่ติ๊ก "คิดเงินรอบนี้" เพื่อตัดรอบบิล' });
+      setModalMessage({ title: 'ไม่สามารถปิดยอดได้', desc: 'ไม่มีรายการงานที่เลือกคิดเงิน' });
       return;
     }
 
     const cycleId = Date.now().toString();
-    const cycleTitle = `รอบบิลวันที่ ${formatToDisplayDate(cutoffDate)}`;
-
+    const cycleTitle = `รอบตัดยอด ${formatToDisplayDate(cutoffDate)}`;
     const newCycle = {
       id: cycleId,
       workspace: selectedWs,
@@ -506,13 +504,13 @@ export default function App() {
 
     fetchData();
     setModalMessage({
-      title: 'ปิดรอบบิลสำเร็จ!',
-      desc: `บันทึก ${cycleTitle} ขึ้น Supabase เรียบร้อย รวม ${currentTotalMins} นาที ได้รับสุทธิ ฿${currentNet.toLocaleString()}`
+      title: 'ปิดรอบสำเร็จ',
+      desc: `บันทึกรอบ "${cycleTitle}" รวม ${currentTotalMins} นาที ยอดสุทธิ ฿${currentNet.toLocaleString()}`
     });
   };
 
   const handleRollbackCycle = async (cycle: BillingCycle) => {
-    if (confirm(`ต้องการยกเลิกการปิด "${cycle.title}" เพื่อนำงานทั้ง ${cycle.jobCount} เรื่องกลับมาคำนวณใหม่หรือไม่?`)) {
+    if (confirm(`ต้องการยกเลิกรอบ "${cycle.title}" เพื่อนำงานทั้ง ${cycle.jobCount} เรื่องกลับมาคำนวณใหม่หรือไม่?`)) {
       await supabase.from('jobs').update({
         status: 'pending',
         billing_cycle_id: null
@@ -520,7 +518,7 @@ export default function App() {
 
       await supabase.from('billing_cycles').delete().eq('id', cycle.id);
       fetchData();
-      setModalMessage({ title: 'ยกเลิกสำเร็จ', desc: 'ดึงรายการงานกลับเข้าสู่รอบปัจจุบันเรียบร้อยแล้ว' });
+      setModalMessage({ title: 'สำเร็จ', desc: 'ยกเลิกรอบคิดเงินเรียบร้อยแล้ว' });
     }
   };
 
@@ -533,72 +531,74 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-[#f0f2f5] pb-28 font-sans select-none">
       
-      {/* 1. Top Bar */}
-      <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-4 py-3.5">
-        <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] tracking-widest uppercase text-red-500 font-extrabold">MIX TRACKER</span>
-              <span className="text-[9px] bg-red-950/60 text-red-400 border border-red-900/40 px-1.5 py-0.2 rounded font-mono">SUPABASE LIVE</span>
+      {/* 1. Top Bar ปรับไม่ให้เบียดบนมือถือ */}
+      <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-3 sm:px-4 py-2.5 sm:py-3.5">
+        <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <span className="text-[10px] sm:text-[11px] tracking-widest uppercase text-red-500 font-extrabold whitespace-nowrap">MIX TRACKER</span>
+              <span className="text-[8px] sm:text-[9px] bg-red-950/60 text-red-400 border border-red-900/40 px-1.5 py-0.2 rounded font-mono whitespace-nowrap">SUPABASE LIVE</span>
             </div>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5 min-w-0">
               <select 
                 value={selectedWs} 
                 onChange={(e) => setSelectedWs(e.target.value)}
-                className="bg-transparent text-white font-black text-lg focus:outline-none cursor-pointer"
+                className="bg-transparent text-white font-black text-base sm:text-lg focus:outline-none cursor-pointer max-w-[140px] xs:max-w-[180px] sm:max-w-xs truncate"
               >
                 {workspaces.map(ws => <option key={ws} value={ws} className="bg-[#12141a] text-white">{ws}</option>)}
               </select>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <button onClick={fetchData} title="รีเฟรชข้อมูลจาก Cloud" className="p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
-              <RefreshCw size={15} className={loading ? 'animate-spin text-red-500' : ''} />
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            <button onClick={fetchData} title="รีเฟรช Cloud" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
+              <RefreshCw size={14} className={loading ? 'animate-spin text-red-500' : ''} />
             </button>
-            <button onClick={handleRenameWorkspace} title="แก้ไขชื่อทีม" className="p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
-              <Edit3 size={15} />
+            <button onClick={handleRenameWorkspace} title="เปลี่ยนชื่อทีม" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
+              <Edit3 size={14} />
             </button>
-            <button onClick={handleDeleteWorkspace} title="ลบทีม" className="p-2 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl transition">
-              <Trash2 size={15} />
+            <button onClick={handleDeleteWorkspace} title="ลบทีม" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl transition">
+              <Trash2 size={14} />
             </button>
-            <button onClick={handleAddWorkspace} className="text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-2 rounded-xl transition flex items-center gap-1 shadow-md">
-              <Plus size={14} /> เพิ่มทีม
+            <button onClick={handleAddWorkspace} className="text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl transition flex items-center gap-1 shadow-md whitespace-nowrap">
+              <Plus size={14} />
+              <span className="inline">เพิ่มทีม</span>
             </button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-xl md:max-w-2xl mx-auto px-4 pt-5 space-y-4">
+      <div className="max-w-xl md:max-w-2xl mx-auto px-3 sm:px-4 pt-4 sm:pt-5 space-y-3.5 sm:space-y-4">
 
-        {/* 2. บันทึกข้อความ & ลิงก์เดดไลน์ (เปิด-ปิด ย่อ/ขยายได้) */}
-        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 transition-all duration-300 space-y-3">
-          <div className="flex items-center justify-between">
+        {/* 2. ช่องโน้ต (ปรับ responsive ไม่บีบอัดบนจอมือถือ) */}
+        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
+          <div className="flex items-center justify-between gap-2">
             <button 
               onClick={toggleNotesCollapse}
-              className="text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider hover:text-red-300 transition"
+              className="min-w-0 text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider hover:text-red-300 transition text-left"
             >
-              <FileText size={15} /> บันทึกข้อความ & ลิงก์เดดไลน์
-              <span className="text-[10px] bg-[#1c1f28] text-[#8e94a4] px-1.5 py-0.2 rounded border border-[#262933] font-mono">
+              <FileText size={15} className="shrink-0" /> 
+              <span className="truncate">บันทึกข้อความ & ลิงก์</span>
+              <span className="text-[10px] bg-[#1c1f28] text-[#8e94a4] px-1.5 py-0.2 rounded border border-[#262933] font-mono shrink-0">
                 {filteredNotes.length}
               </span>
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 shrink-0">
               <span className="text-[10px] text-[#6b7280] hidden sm:inline">
-                {isNotesCollapsed ? 'คลิกลิงก์ด่วนได้ทันที' : 'กดลูกศรเพื่อย่อ'}
+                {isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
               </span>
               <button 
                 onClick={toggleNotesCollapse}
                 className="p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition"
-                title={isNotesCollapsed ? 'ขยายกล่องโน้ต' : 'ย่อกล่องโน้ต'}
+                title={isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
               >
                 {isNotesCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
               </button>
             </div>
           </div>
 
-          {/* มุมมองเมื่อ "ย่อเล็กลง": ซ่อนฟอร์มพิมพ์ แต่ดึงชิปลิงก์สำคัญมาให้กดได้ทันที */}
+          {/* พับเก็บ: Quick links */}
           {isNotesCollapsed && (
             <div className="pt-2 border-t border-[#1c1f28]">
               {filteredNotes.length > 0 ? (
@@ -628,57 +628,57 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <p className="text-[11px] text-[#555a66]">ไม่มีบันทึกหรือลิงก์ในทีมนี้ (กดขยายเพื่อเพิ่ม)</p>
+                <p className="text-[11px] text-[#555a66]">(ไม่มีบันทึก)</p>
               )}
             </div>
           )}
 
-          {/* มุมมองเมื่อ "ขยายเต็ม": แสดงฟอร์มกรอกและรายการเต็ม */}
+          {/* กางออก: ฟอร์มโน้ต responsive ไม่ซ้อนเบียด */}
           {!isNotesCollapsed && (
             <>
-              <div className="grid grid-cols-3 gap-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
                 <input 
                   type="date"
                   value={noteDate}
                   onChange={(e) => setNoteDate(e.target.value)}
-                  className="bg-[#0a0b0e] border border-[#262933] rounded-xl px-2.5 py-2 text-xs text-white focus:border-red-500 focus:outline-none"
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-2.5 py-2 text-xs text-white focus:border-red-500 focus:outline-none"
                 />
                 <input 
                   type="text" 
                   placeholder="หัวข้อบันทึก..."
                   value={noteTitle}
                   onChange={(e) => setNoteTitle(e.target.value)}
-                  className="col-span-2 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                  className="w-full sm:col-span-2 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
                 />
               </div>
 
               <div className="flex gap-2">
                 <input 
                   type="text" 
-                  placeholder="รายละเอียด หรือวางลิงก์ เช่น https://docs.google.com/..."
+                  placeholder="รายละเอียด หรือวางลิงก์ https://docs.google.com/..."
                   value={noteContent}
                   onChange={(e) => setNoteContent(e.target.value)}
-                  className="flex-1 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                  className="min-w-0 flex-1 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
                 />
-                <button onClick={handleAddNote} className="bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition shadow-md">
-                  เพิ่ม
+                <button onClick={handleAddNote} className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition shadow-md">
+                  เพิ่มโน้ต
                 </button>
               </div>
 
               {filteredNotes.length > 0 && (
-                <div className="space-y-2 pt-1 max-h-36 overflow-y-auto pr-1">
+                <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
                   {filteredNotes.map(n => (
-                    <div key={n.id} className="bg-[#181a22] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs">
-                      <div className="space-y-1 pr-2">
-                        <div className="flex items-center gap-2">
+                    <div key={n.id} className="bg-[#181a22] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2">
+                      <div className="space-y-1 min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-red-300">{n.title}</span>
                           <span className="text-[10px] text-[#6b7280] font-mono">{n.date}</span>
                         </div>
-                        <div className="text-[#a6adbb] text-[12px] leading-relaxed">
+                        <div className="text-[#a6adbb] text-[12px] leading-relaxed break-words">
                           {renderTextWithLinks(n.content)}
                         </div>
                       </div>
-                      <button onClick={() => handleDeleteNote(n.id)} className="text-[#555a66] hover:text-red-400 p-1">
+                      <button onClick={() => handleDeleteNote(n.id)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1">
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -689,85 +689,86 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. สรุปภาพรวมรายได้ประจำรอบบิล */}
-        <div className="grid grid-cols-2 gap-3.5">
-          <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 shadow-sm">
+        {/* 3. ยอดรวมนาที & รายได้สุทธิ */}
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
+          <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 shadow-sm">
             <span className="text-xs text-[#8e94a4] flex items-center gap-1.5 font-medium">
               <Clock size={14} /> นาทีในรอบนี้
             </span>
-            <p className="text-3xl font-black text-white mt-1.5">{currentTotalMins} <span className="text-xs font-normal text-[#8e94a4]">นาที</span></p>
-            <p className="text-xs text-red-400 font-semibold mt-0.5">{activeBilledJobs.length} เรื่องที่รอนับยอด</p>
+            <p className="text-2xl sm:text-3xl font-black text-white mt-1.5">{currentTotalMins} <span className="text-xs font-normal text-[#8e94a4]">นาที</span></p>
+            <p className="text-[11px] sm:text-xs text-red-400 font-semibold mt-0.5">{activeBilledJobs.length} เรื่องที่รอนับยอด</p>
           </div>
 
-          <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-4 relative overflow-hidden shadow-sm">
+          <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-3.5 sm:p-4 relative overflow-hidden shadow-sm">
             <div className="absolute top-0 right-0 w-24 h-24 bg-red-600/10 rounded-full blur-2xl pointer-events-none" />
-            <span className="text-xs text-[#8e94a4] flex items-center gap-1.5 font-medium">
-              <DollarSign size={14} className="text-red-500" /> ยอดสุทธิ (หัก 3%)
+            <span className="text-xs text-[#8e94a4] flex items-center gap-1 font-medium truncate">
+              <DollarSign size={14} className="text-red-500 shrink-0" /> ยอดสุทธิ (หัก 3%)
             </span>
-            <p className="text-3xl font-black text-red-500 mt-1.5">
+            <p className="text-2xl sm:text-3xl font-black text-red-500 mt-1.5">
               ฿{currentNet.toLocaleString('th-TH', { maximumFractionDigits: 0 })}
             </p>
-            <p className="text-[11px] text-[#8e94a4] mt-0.5">ยอดรวม ฿{currentGross.toLocaleString()} | ภาษี ฿{currentTax.toLocaleString()}</p>
+            <p className="text-[10px] sm:text-[11px] text-[#8e94a4] mt-0.5 truncate">รวม ฿{currentGross.toLocaleString()} | ภาษี ฿{currentTax.toLocaleString()}</p>
           </div>
         </div>
 
-        {/* 4. กล่องคำนวณเป้าหมายเดือนนี้ (เปิด-ปิด ย่อ/ขยายได้ + การ์ดอธิบายสูตร) */}
-        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 transition-all duration-300 space-y-3">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-2">
+        {/* 4. ช่องเป้าหมาย (ปรับปุ่มและหัวข้อไม่ให้บีบอัดตกบรรทัด) */}
+        <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
+          <div className="flex justify-between items-center gap-2">
+            <div className="flex items-center gap-1.5 min-w-0">
               <button 
                 onClick={toggleTargetCollapse}
-                className="text-xs font-bold text-white flex items-center gap-1.5 hover:text-red-400 transition"
+                className="text-xs font-bold text-white flex items-center gap-1.5 hover:text-red-400 transition min-w-0 text-left"
               >
-                <Target size={15} className="text-red-500" /> เป้าหมายเดือนนี้ (สุทธิหักภาษี 3%)
+                <Target size={15} className="text-red-500 shrink-0" /> 
+                <span className="truncate">เป้าหมายเดือนนี้ <span className="text-[10px] text-[#8e94a4] font-normal hidden xs:inline">(สุทธิ 3%)</span></span>
               </button>
             </div>
 
-            <div className="flex items-center gap-1.5">
-              {/* ปุ่มเปิดการ์ดอธิบายวิธีคิดคำนวณ */}
+            <div className="flex items-center gap-1 shrink-0">
               <button 
                 onClick={() => setShowCalcGuide(!showCalcGuide)}
-                className="text-[11px] text-[#8e94a4] hover:text-white flex items-center gap-1 bg-[#181a22] border border-[#262933] px-2 py-1 rounded-lg transition"
-                title="ดูวิธีคิดคำนวณ & ตัวอย่างสูตร"
+                className="text-[10px] sm:text-[11px] text-[#8e94a4] hover:text-white flex items-center gap-1 bg-[#181a22] border border-[#262933] px-2 py-1 rounded-lg transition whitespace-nowrap shrink-0"
+                title="ดูสูตรคิด"
               >
-                <HelpCircle size={12} className="text-red-400" /> วิธีคิด
+                <HelpCircle size={12} className="text-red-400 shrink-0" />
+                <span>วิธีคิด</span>
               </button>
               
               <button 
                 onClick={() => setIsEditingTarget(!isEditingTarget)}
-                className="text-[11px] text-red-400 hover:text-red-300 font-medium bg-[#181a22] border border-[#262933] px-2 py-1 rounded-lg transition"
+                className="text-[10px] sm:text-[11px] text-red-400 hover:text-red-300 font-medium bg-[#181a22] border border-[#262933] px-2 py-1 rounded-lg transition whitespace-nowrap shrink-0"
               >
                 {isEditingTarget ? 'ปิด' : 'ตั้งเป้า'}
               </button>
 
               <button 
                 onClick={toggleTargetCollapse}
-                className="p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition"
-                title={isTargetCollapsed ? 'ขยายกล่องเป้าหมาย' : 'ย่อกล่องเป้าหมาย'}
+                className="p-1 sm:p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition shrink-0"
+                title={isTargetCollapsed ? 'กางออก' : 'พับเก็บ'}
               >
                 {isTargetCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
               </button>
             </div>
           </div>
 
-          {/* มุมมองเมื่อ "ย่อเล็กลง": แสดง Slim Bar บรรทัดเดียว ประหยัดพื้นที่ */}
+          {/* พับเก็บ: แถบเป้าหมายแบบกระชับ */}
           {isTargetCollapsed && (
-            <div className="pt-2 border-t border-[#1c1f28] flex justify-between items-center text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-mono font-bold text-white">฿{monthlyTarget.toLocaleString()}</span>
-                <span className="text-[10px] font-bold text-red-400 bg-red-950/40 border border-red-900/40 px-1.5 py-0.5 rounded-md">
+            <div className="pt-2 border-t border-[#1c1f28] flex justify-between items-center text-xs gap-2">
+              <div className="flex items-center gap-1.5 shrink-0">
+                <span className="font-mono font-bold text-white text-[11px] sm:text-xs">฿{monthlyTarget.toLocaleString()}</span>
+                <span className="text-[9px] sm:text-[10px] font-bold text-red-400 bg-red-950/40 border border-red-900/40 px-1.5 py-0.5 rounded-md">
                   {targetPercent}%
                 </span>
               </div>
-              <div className="text-right">
-                <span className="text-[#8e94a4] text-[11px]">
-                  {remainingMinsNeeded > 0 ? `ขาดอีก ${remainingMinsNeeded} นาที (฿${remainingMoneyNeeded.toLocaleString()})` : 'ครบเป้าแล้ว 🎉'}
+              <div className="text-right min-w-0">
+                <span className="text-[#8e94a4] text-[10px] sm:text-[11px] truncate block">
+                  {remainingMinsNeeded > 0 ? `ขาดอีก ${remainingMinsNeeded} น. (฿${remainingMoneyNeeded.toLocaleString()})` : 'บรรลุเป้าหมายแล้ว! 🎉'}
                 </span>
               </div>
             </div>
           )}
 
-          {/* มุมมองเมื่อ "ขยายเต็ม": แสดงฟอร์มตั้งเป้า, หลอด Progress Bar, ตัวเลขสถิติครบถ้วน */}
+          {/* กางออก: ข้อมูลความคืบหน้า */}
           {!isTargetCollapsed && (
             <>
               {isEditingTarget ? (
@@ -776,12 +777,12 @@ export default function App() {
                     type="number" 
                     value={targetInput}
                     onChange={(e) => setTargetInput(e.target.value)}
-                    placeholder="ใส่ยอดเงินสุทธิที่ต้องการ..."
-                    className="bg-transparent text-sm text-white flex-1 px-2 focus:outline-none font-mono"
+                    placeholder="เป้าหมายเงินสุทธิ..."
+                    className="bg-transparent text-sm text-white min-w-0 flex-1 px-2 focus:outline-none font-mono"
                   />
                   <button 
                     onClick={saveTargetGoal}
-                    className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+                    className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
                   >
                     บันทึก
                   </button>
@@ -791,7 +792,7 @@ export default function App() {
                   <div className="flex justify-between items-end">
                     <div>
                       <span className="text-xs text-[#8e94a4]">เป้าหมาย:</span>
-                      <span className="text-base font-black text-white ml-1.5">฿{monthlyTarget.toLocaleString()}</span>
+                      <span className="text-sm sm:text-base font-black text-white ml-1.5">฿{monthlyTarget.toLocaleString()}</span>
                     </div>
                     <div className="text-right">
                       <span className="text-xs text-red-400 font-bold">{targetPercent}%</span>
@@ -807,22 +808,21 @@ export default function App() {
                     />
                   </div>
 
-                  {/* สรุปงานที่ต้องทำเพิ่ม */}
+                  {/* กล่องสรุปนาทีที่เหลือ */}
                   <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2 text-xs mt-2">
                     <div>
                       <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
                       <span className="font-mono font-bold text-white text-sm">
-                        {remainingMinsNeeded > 0 ? `${remainingMinsNeeded} นาที` : 'ครบเป้าหมายแล้ว 🎉'}
+                        {remainingMinsNeeded > 0 ? `${remainingMinsNeeded} นาที` : 'ครบแล้ว! 🎉'}
                       </span>
                       {remainingMoneyNeeded > 0 && (
                         <span className="text-[10px] text-red-400 block mt-0.5">(ยังขาดอีก ฿{remainingMoneyNeeded.toLocaleString()})</span>
                       )}
                     </div>
-
                     <div>
                       <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
                       <span className="font-mono font-bold text-white text-sm">
-                        {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ยอดทะลุเป้า!'}
+                        {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ครบแล้ว! 🎉'}
                       </span>
                       <span className="text-[10px] text-[#6b7280] block mt-0.5">(เฉลี่ยเรื่องละ {avgMovieLength} นาที)</span>
                     </div>
@@ -832,46 +832,39 @@ export default function App() {
             </>
           )}
 
-          {/* การ์ดอธิบายหลักการคำนวณและตัวอย่างสูตร (Calculation Guide Accordion) */}
+          {/* คู่มือวิธีคำนวณ */}
           {showCalcGuide && (
-            <div className="pt-3 border-t border-[#262933] space-y-3 bg-[#0a0b0e] p-3.5 rounded-xl border border-red-900/40 text-xs">
+            <div className="pt-3 border-t border-[#262933] space-y-3 bg-[#0a0b0e] p-3 rounded-xl border border-red-900/40 text-xs">
               <div className="flex justify-between items-center text-red-400 font-bold">
                 <span className="flex items-center gap-1.5">
-                  <Calculator size={14} /> หลักการคำนวณเป้าหมาย (หักภาษี 3%)
+                  <Calculator size={14} /> สูตรคำนวณเป้าหมาย (หัก 3%)
                 </span>
                 <button onClick={() => setShowCalcGuide(false)} className="text-[#8e94a4] hover:text-white">
                   <X size={14} />
                 </button>
               </div>
-
               <div className="space-y-2 text-[#a6adbb] leading-relaxed">
                 <div>
-                  <span className="font-bold text-white block">1. อัตราเงินสุทธิเข้ากระเป๋าจริงต่อ 1 นาที:</span>
+                  <span className="font-bold text-white block">1. อัตราสุทธิต่อนาที:</span>
                   <p className="text-[11px] font-mono text-[#8e94a4] mt-0.5">
-                    เรท 15 บ. หักภาษี 3% (0.45 บ.) = <span className="text-red-400 font-bold">14.55 บาท / นาที</span>
+                    นาทีละ 15 บาท หัก 3% (0.45 บ.) = <span className="text-red-400 font-bold">14.55 บาท/นาที</span>
                   </p>
                 </div>
-
                 <div>
-                  <span className="font-bold text-white block">2. สูตรคำนวณหานาทีที่ต้องทำเพิ่ม:</span>
+                  <span className="font-bold text-white block">2. หานาทีที่ต้องทำทั้งหมด:</span>
                   <div className="bg-[#12141a] p-2 rounded-lg font-mono text-[11px] text-red-300 border border-[#262933] my-1">
-                    นาทีที่ต้องทำเพิ่ม = ยอดเงินที่ยังขาด ÷ 14.55
+                    เป้าหมาย ÷ 14.55
                   </div>
                 </div>
-
                 <div>
-                  <span className="font-bold text-white block">3. ตัวอย่างการคิดจริง (Walkthrough):</span>
+                  <span className="font-bold text-white block">3. ตัวอย่างการคิดจริง:</span>
                   <ul className="list-disc list-inside text-[11px] space-y-1 text-[#8e94a4] mt-1">
-                    <li>ตั้งเป้าหมายสุทธิ: <strong className="text-white">14,700 บาท</strong></li>
-                    <li>ตอนนี้ทำไปแล้ว 23% (ได้เงินสุทธิแล้ว 3,419.25 บาท)</li>
-                    <li>ยอดเงินที่ยังขาด: 14,700 - 3,419.25 = <strong className="text-red-400">11,280.75 บาท</strong></li>
-                    <li>คิดเป็นนาที: 11,280.75 ÷ 14.55 = <strong className="text-white">775.31 นาที</strong> (ระบบปัดขึ้นเป็น <strong className="text-red-400">776 นาที</strong>)</li>
-                    <li>ถ้าหนังเฉลี่ยยาวเรื่องละ 78 นาที: 776 ÷ 78 ≈ <strong className="text-white">10 เรื่อง</strong></li>
+                    <li>เป้าหมาย: <strong className="text-white">14,700 บาท</strong></li>
+                    <li>ทำไปแล้ว: 23% (สุทธิ 3,419.25 บาท)</li>
+                    <li>ยอดที่ขาด: 14,700 - 3,419.25 = <strong className="text-red-400">11,280.75 บาท</strong></li>
+                    <li>นาทีที่ต้องทำเพิ่ม: 11,280.75 ÷ 14.55 = <strong className="text-white">775.31 นาที</strong> (ปัดเป็น <strong className="text-red-400">776 นาที</strong>)</li>
+                    <li>คิดเป็นเรื่องเฉลี่ย 78 นาที: 776 ÷ 78 ≈ <strong className="text-white">10 เรื่อง</strong></li>
                   </ul>
-                </div>
-
-                <div className="bg-red-950/30 border border-red-900/40 p-2.5 rounded-lg text-[11px] text-red-300">
-                  💡 <strong>ข้อจำสำคัญ:</strong> ตัวเลข <strong className="text-white">776 นาที</strong> นี้ระบบคำนวณหักภาษี 3% ให้เรียบร้อยแล้ว เมื่อทำครบ 776 นาที บริษัทจะโอนเงินสุทธิให้ 11,290.80 บาท รวมกับของเดิมจะได้ 14,710 บาทพอดีเป๊ะ โดยไม่ต้องไปคำนวณบวกชดเชยภาษีซ้ำเองอีกรอบ!
                 </div>
               </div>
             </div>
@@ -881,7 +874,8 @@ export default function App() {
         {/* ======================= TAB 1: คิวงาน (Queue View) ======================= */}
         {activeTab === 'queue' && (
           <div className="space-y-4">
-            <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 md:p-5 space-y-3.5">
+            {/* กล่องบันทึกงานใหม่ */}
+            <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-5 space-y-3.5">
               <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่ (Cloud Storage)</h2>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -895,9 +889,8 @@ export default function App() {
                     className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#454954] focus:border-red-500 focus:outline-none"
                   />
                 </div>
-
                 <div>
-                  <label className="text-xs text-[#8e94a4] block mb-1">2. ลิงก์ Google Drive (ก๊อปจากดิสมาวาง)</label>
+                  <label className="text-xs text-[#8e94a4] block mb-1">2. ลิงก์ Google Drive (ถ้ามี)</label>
                   <input 
                     type="text" 
                     placeholder="https://drive.google.com/drive/folders/..."
@@ -909,10 +902,10 @@ export default function App() {
               </div>
 
               <div>
-                <label className="text-xs text-[#8e94a4] block mb-1">3. ก๊อปแถวจาก Sheet มาวาง (ตัดคำอัตโนมัติ)</label>
+                <label className="text-xs text-[#8e94a4] block mb-1">3. หรือวางแถวจาก Sheet (ก๊อปปี้ทั้งแถว)</label>
                 <textarea 
                   rows={2}
-                  placeholder="วางแถวเช่น: GS273  29-10-26  30-10-26  31-10-26  1-11-26  2-11-26 หรือเฉพาะวันที่ก็ได้"
+                  placeholder="ตัวอย่าง: GS273  29-10-26  30-10-26  31-10-26  1-11-26  2-11-26"
                   value={sheetPaste}
                   onChange={(e) => setSheetPaste(e.target.value)}
                   className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none"
@@ -923,49 +916,52 @@ export default function App() {
                 onClick={handleAddJob}
                 className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-sm transition shadow-lg shadow-red-950/50"
               >
-                บันทึกเข้าสู่ตารางงาน
+                บันทึกงานลงระบบ
               </button>
             </div>
 
-            {/* รายการคิวงานที่กำลังทำ */}
+            {/* รายการคิวงาน พร้อมการแยกสีอ่อน GS / DW ไม่ฉูดฉาด */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <span className="text-xs font-bold text-[#8e94a4] uppercase">คิวงานปัจจุบันในทีม ({pendingJobs.length})</span>
-                <span className="text-[11px] text-red-400 font-semibold">วันมิกซ์เด่นพิเศษ</span>
+                <span className="text-xs font-bold text-[#8e94a4] uppercase">คิวงานปัจจุบัน ({pendingJobs.length})</span>
+                <span className="text-[11px] text-red-400 font-semibold">งานพร้อมคิดเงิน</span>
               </div>
 
               {pendingJobs.length === 0 ? (
                 <div className="text-center py-12 text-[#555a66] text-xs bg-[#12141a]/50 rounded-2xl border border-dashed border-[#262933]">
-                  {loading ? 'กำลังเชื่อมต่อและโหลดข้อมูลจาก Supabase...' : 'ไม่มีงานค้างในรอบนี้ บันทึกงานใหม่ด้านบนได้เลย'}
+                  {loading ? 'กำลังโหลดข้อมูลจาก Supabase...' : 'ไม่มีงานค้างในคิว'}
                 </div>
               ) : (
                 pendingJobs.map((job) => {
                   const isDW = job.title.toUpperCase().startsWith('DW');
-
                   return (
                     <div 
                       key={job.id} 
-                      className={`bg-[#12141a] border rounded-2xl p-4 transition ${
-                        job.isIncludedInBilling ? 'border-[#262933]' : 'border-zinc-800 opacity-60'
-                      }`}
+                      className={`rounded-2xl p-3.5 sm:p-4 transition border ${
+                        isDW 
+                          ? 'bg-[#151318]/90 border-amber-500/20' 
+                          : 'bg-[#10141d]/90 border-sky-500/20'
+                      } ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border ${
-                              isDW ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                            {/* ป้ายแท็ก GS / DW สีอ่อนซอฟต์โทน แยกแยะรหัสง่ายและไม่แสบตา */}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                              isDW 
+                                ? 'bg-amber-500/10 text-amber-300 border-amber-500/25' 
+                                : 'bg-sky-500/10 text-sky-300 border-sky-500/25'
                             }`}>
                               {isDW ? 'DW' : 'GS'}
                             </span>
-                            <span className="font-extrabold text-white text-lg">{job.title}</span>
-                            {job.episode && <span className="text-xs bg-[#1c1f28] text-[#a0a6b5] px-2.5 py-0.5 rounded-md">ตอน {job.episode}</span>}
+                            <span className="font-extrabold text-white text-base sm:text-lg truncate">{job.title}</span>
+                            {job.episode && <span className="text-[11px] sm:text-xs bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md shrink-0">ตอน {job.episode}</span>}
                           </div>
                           
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                             <span className="text-sm font-bold text-red-400">
                               {job.minutes} นาที <span className="text-xs font-normal text-[#8e94a4]">(฿{(job.minutes * 15).toLocaleString()})</span>
                             </span>
-
                             {job.drive_url && (
                               <a 
                                 href={job.drive_url} 
@@ -979,17 +975,17 @@ export default function App() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg transition" title="แก้ไข">
+                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                          <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg transition" title="แก้ไขงาน">
                             <Edit3 size={14} />
                           </button>
                           <button 
                             onClick={() => toggleJobBilling(job)}
-                            className={`text-xs px-3 py-1.5 rounded-xl border font-semibold ${
+                            className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border font-semibold whitespace-nowrap transition ${
                               job.isIncludedInBilling ? 'border-red-500/50 text-red-400 bg-red-950/40' : 'border-[#262933] text-[#555a66] bg-[#181a22]'
                             }`}
                           >
-                            {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยกยอดไป'}
+                            {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
                           </button>
                           <button onClick={() => handleDeleteJob(job.id)} className="p-1.5 text-[#555a66] hover:text-red-400">
                             <Trash2 size={15} />
@@ -997,7 +993,8 @@ export default function App() {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-5 gap-2 mt-3.5 pt-3.5 border-t border-[#1c1f28] text-center">
+                      {/* 5 วันที่ขั้นตอนการทำงาน */}
+                      <div className="grid grid-cols-5 gap-1 sm:gap-2 mt-3.5 pt-3.5 border-t border-[#1c1f28] text-center">
                         <div className="text-[#6b7280]">
                           <div className="text-[10px]">เกลา</div>
                           <div className="text-xs font-mono mt-0.5">{formatToDisplayDate(job.date_glao)}</div>
@@ -1033,7 +1030,7 @@ export default function App() {
             <div className="flex justify-between items-center">
               <div>
                 <h3 className="text-lg font-black text-white">{monthNames[month]} {year}</h3>
-                <p className="text-xs text-red-400 mt-0.5">แถบสียาวคลุมเดดไลน์ • วงกลมแดงสดไฮไลต์วันมิกซ์</p>
+                <p className="text-xs text-red-400 mt-0.5">ตารางงานมิกซ์</p>
               </div>
               <div className="flex gap-1.5">
                 <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-2 bg-[#1c1f28] hover:bg-[#262a36] text-white rounded-xl">
@@ -1053,7 +1050,6 @@ export default function App() {
               {Array.from({ length: firstDayIndex }).map((_, i) => (
                 <div key={`empty-${i}`} className="h-12" />
               ))}
-
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const dayNum = i + 1;
                 const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
@@ -1098,7 +1094,7 @@ export default function App() {
 
             {selectedCalDate && (
               <div className="pt-4 border-t border-[#262933] text-xs">
-                <span className="text-[#8e94a4] font-medium">รายการในวันที่ {formatToDisplayDate(selectedCalDate)}:</span>
+                <span className="text-[#8e94a4] font-medium">งานวันที่ {formatToDisplayDate(selectedCalDate)}:</span>
                 <div className="mt-2 space-y-2">
                   {filteredJobs.filter(j => {
                     const start = j.date_glao || j.date_mix;
@@ -1117,11 +1113,11 @@ export default function App() {
                           )}
                         </div>
                         <div className="text-[11px] mt-0.5">
-                          {j.date_mix === selectedCalDate && <span className="text-red-400 font-bold">★ ถึงคิวมิกซ์วันนี้</span>}
-                          {j.date_deadline === selectedCalDate && <span className="text-amber-400 font-bold">⚠️ เดดไลน์ส่งงานวันนี้</span>}
-                          {j.date_glao === selectedCalDate && <span className="text-[#8e94a4]">เริ่มเกลา</span>}
-                          {j.date_pak === selectedCalDate && <span className="text-[#8e94a4]">เริ่มพากย์</span>}
-                          {j.date_sub === selectedCalDate && <span className="text-[#8e94a4]">เริ่มซับ</span>}
+                          {j.date_mix === selectedCalDate && <span className="text-red-400 font-bold">วันมิกซ์งาน </span>}
+                          {j.date_deadline === selectedCalDate && <span className="text-amber-400 font-bold">เดดไลน์ส่งงาน </span>}
+                          {j.date_glao === selectedCalDate && <span className="text-[#8e94a4]">วันเกลา </span>}
+                          {j.date_pak === selectedCalDate && <span className="text-[#8e94a4]">วันพากย์ </span>}
+                          {j.date_sub === selectedCalDate && <span className="text-[#8e94a4]">วันซับ </span>}
                         </div>
                       </div>
                       <span className="font-mono text-white font-bold">{j.minutes} นาที</span>
@@ -1133,7 +1129,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ======================= TAB 3: ตารางงาน & สถิติกราฟ ======================= */}
+        {/* ======================= TAB 3: ตาราง & กราฟ ======================= */}
         {activeTab === 'table' && (
           <div className="space-y-4">
             <div className="flex bg-[#12141a] p-1.5 rounded-2xl border border-[#262933]">
@@ -1143,7 +1139,7 @@ export default function App() {
                   tableSubView === 'table' ? 'bg-red-600 text-white shadow' : 'text-[#8e94a4] hover:text-white'
                 }`}
               >
-                <TableIcon size={14} /> ตารางข้อมูล ({filteredJobs.length})
+                <TableIcon size={14} /> ตารางงาน ({filteredJobs.length})
               </button>
               <button 
                 onClick={() => setTableSubView('analytics')}
@@ -1151,19 +1147,19 @@ export default function App() {
                   tableSubView === 'analytics' ? 'bg-red-600 text-white shadow' : 'text-[#8e94a4] hover:text-white'
                 }`}
               >
-                <BarChart3 size={14} /> กราฟสรุปผลงาน
+                <BarChart3 size={14} /> วิเคราะห์สถิติ
               </button>
             </div>
 
             {tableSubView === 'table' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
-                <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">ตารางงานทั้งหมด ({filteredJobs.length} เรื่อง)</h3>
+                <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">รายการงานทั้งหมด ({filteredJobs.length} เรื่อง)</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse min-w-[540px]">
                     <thead>
                       <tr className="border-b border-[#262933] text-red-400 font-bold bg-[#181a22]">
                         <th className="p-2.5">รหัส</th>
-                        <th className="p-2.5">เรื่อง</th>
+                        <th className="p-2.5">ชื่อเรื่อง</th>
                         <th className="p-2.5">นาที</th>
                         <th className="p-2.5">Drive</th>
                         <th className="p-2.5">เกลา</th>
@@ -1180,7 +1176,11 @@ export default function App() {
                         return (
                           <tr key={j.id} className="hover:bg-[#181a22]/60">
                             <td className="p-2.5">
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${isDW ? 'bg-amber-500/20 text-amber-400' : 'bg-cyan-500/20 text-cyan-400'}`}>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                isDW 
+                                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' 
+                                  : 'bg-sky-500/10 text-sky-300 border-sky-500/20'
+                              }`}>
                                 {isDW ? 'DW' : 'GS'}
                               </span>
                             </td>
@@ -1189,7 +1189,7 @@ export default function App() {
                             <td className="p-2.5">
                               {j.drive_url ? (
                                 <a href={j.drive_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-white inline-flex items-center gap-1">
-                                  <FolderOpen size={13} /> ลิงก์
+                                  <FolderOpen size={13} />
                                 </a>
                               ) : '-'}
                             </td>
@@ -1213,7 +1213,7 @@ export default function App() {
                       })}
                       {filteredJobs.length === 0 && (
                         <tr>
-                          <td colSpan={10} className="p-6 text-center text-[#555a66]">ยังไม่มีข้อมูลในตาราง</td>
+                          <td colSpan={10} className="p-6 text-center text-[#555a66]">ไม่มีข้อมูล</td>
                         </tr>
                       )}
                     </tbody>
@@ -1226,34 +1226,31 @@ export default function App() {
               <div className="space-y-4">
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
                   <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <TrendingUp size={15} /> สรุปผลงานทั้งหมดที่ทำมา
+                    <TrendingUp size={15} /> สรุปประเภทงานที่ทำมากที่สุด
                   </h4>
-
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
-                      <span className="text-[11px] text-[#8e94a4]">ทำอะไรมากที่สุด:</span>
+                      <span className="text-[11px] text-[#8e94a4]">ประเภทหลัก:</span>
                       <p className="text-base font-black text-white mt-1">{analyticsData.mostWorkedType}</p>
                     </div>
                     <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
-                      <span className="text-[11px] text-[#8e94a4]">ทำช่วงไหนมากที่สุด:</span>
+                      <span className="text-[11px] text-[#8e94a4]">ช่วงวันที่มิกซ์หนักสุด:</span>
                       <p className="text-xs font-black text-red-400 mt-1 leading-tight">{analyticsData.mostActivePeriodName}</p>
                     </div>
                   </div>
                 </div>
 
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <span className="text-xs font-bold text-white">สัดส่วนประเภทงาน (GS vs DW)</span>
-
+                  <span className="text-xs font-bold text-white">สัดส่วนนาทีงาน (GS vs DW)</span>
                   {analyticsData.totalAllMins > 0 ? (
                     <div className="space-y-2">
                       <div className="flex justify-between text-xs">
-                        <span className="text-cyan-400 font-bold">GS: {analyticsData.gsMins} นาที ({analyticsData.gsCount} เรื่อง)</span>
+                        <span className="text-sky-400 font-bold">GS: {analyticsData.gsMins} นาที ({analyticsData.gsCount} เรื่อง)</span>
                         <span className="text-amber-400 font-bold">DW: {analyticsData.dwMins} นาที ({analyticsData.dwCount} เรื่อง)</span>
                       </div>
-
                       <div className="w-full bg-[#1c1f28] h-3.5 rounded-full overflow-hidden flex">
                         <div 
-                          className="bg-cyan-500 transition-all duration-500" 
+                          className="bg-sky-500 transition-all duration-500" 
                           style={{ width: `${(analyticsData.gsMins / analyticsData.totalAllMins) * 100}%` }} 
                         />
                         <div 
@@ -1263,18 +1260,17 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-[#555a66]">ยังไม่มีข้อมูลเพื่อสร้างกราฟ</p>
+                    <p className="text-xs text-[#555a66]">ไม่มีข้อมูล</p>
                   )}
                 </div>
 
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <span className="text-xs font-bold text-white">ปริมาณงานมิกซ์ตามช่วงเวลาของเดือน</span>
-
+                  <span className="text-xs font-bold text-white">กระจายงานรายปักษ์</span>
                   {analyticsData.maxPeriodMins > 0 ? (
                     <div className="space-y-2.5 pt-1 text-xs">
                       <div>
                         <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>ช่วงต้นเดือน (1–10):</span>
+                          <span>ต้นเดือน (1-10):</span>
                           <span className="text-white font-mono font-bold">{analyticsData.periodEarly} นาที</span>
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
@@ -1287,7 +1283,7 @@ export default function App() {
 
                       <div>
                         <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>ช่วงกลางเดือน (11–20):</span>
+                          <span>กลางเดือน (11-20):</span>
                           <span className="text-white font-mono font-bold">{analyticsData.periodMid} นาที</span>
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
@@ -1300,7 +1296,7 @@ export default function App() {
 
                       <div>
                         <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>ช่วงปลายเดือน (21–31):</span>
+                          <span>ปลายเดือน (21-31):</span>
                           <span className="text-white font-mono font-bold">{analyticsData.periodLate} นาที</span>
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
@@ -1312,7 +1308,7 @@ export default function App() {
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-[#555a66]">ยังไม่มีข้อมูลวันที่เพื่อคำนวณช่วงเวลา</p>
+                    <p className="text-xs text-[#555a66]">ไม่มีข้อมูล</p>
                   )}
                 </div>
               </div>
@@ -1326,16 +1322,16 @@ export default function App() {
             <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-5 space-y-4">
               <div className="flex justify-between items-center border-b border-[#262933] pb-3">
                 <h3 className="text-base font-black text-white flex items-center gap-2">
-                  <Lock size={17} className="text-red-500" /> ปิดยอด
+                  <Lock size={17} className="text-red-500" /> ปิดรอบคำนวณเงิน
                 </h3>
                 <span className="text-xs bg-red-950/50 text-red-400 px-2.5 py-1 rounded-lg border border-red-900/40">
-                  รอนับยอด {activeBilledJobs.length} เรื่อง
+                  รวม {activeBilledJobs.length} เรื่อง
                 </span>
               </div>
 
               <div>
                 <label className="text-xs text-[#8e94a4] block mb-1.5 font-medium">
-                  เลือกวันตัดรอบบิล (เช่น สิ้นเดือนวันที่ 31):
+                  วันที่ตัดยอดรอบนี้ (เช่น 31):
                 </label>
                 <input 
                   type="date"
@@ -1347,19 +1343,19 @@ export default function App() {
 
               <div className="bg-[#181a22] border border-[#262933] rounded-xl p-4 space-y-2 text-xs">
                 <div className="flex justify-between text-[#8e94a4]">
-                  <span>รวมนาทีงานรอบนี้:</span>
+                  <span>รวมนาทีทั้งหมด:</span>
                   <span className="font-mono text-white font-bold">{currentTotalMins} นาที</span>
                 </div>
                 <div className="flex justify-between text-[#8e94a4]">
-                  <span>ยอดเต็มก่อนหักภาษี (15 บ./นาที):</span>
+                  <span>ยอดเต็ม (15 บ./นาที):</span>
                   <span className="font-mono text-white">฿{currentGross.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-red-400">
-                  <span>หักภาษี ณ ที่จ่ายบริษัท 3%:</span>
+                  <span>หัก ณ ที่จ่าย 3%:</span>
                   <span className="font-mono">-฿{currentTax.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-base font-black pt-2 border-t border-[#262933]">
-                  <span className="text-white">ยอดสุทธิที่ได้รับจริง:</span>
+                  <span className="text-white">รับสุทธิ:</span>
                   <span className="text-red-500">฿{currentNet.toLocaleString()}</span>
                 </div>
               </div>
@@ -1368,16 +1364,15 @@ export default function App() {
                 onClick={handleCloseBillingCycle}
                 className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3.5 rounded-xl text-sm transition shadow-lg shadow-red-950/50 flex items-center justify-center gap-2"
               >
-                <CheckCircle2 size={16} /> ยืนยันปิดยอดรอบนี้
+                <CheckCircle2 size={16} /> ยืนยันปิดรอบและบันทึกประวัติ
               </button>
             </div>
 
-            {/* กล่องประวัติรอบบิลที่เคยปิดยอดแล้ว */}
+            {/* ประวัติรอบคิดเงิน */}
             <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-5 space-y-4">
               <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                <Layers size={15} /> ประวัติรอบบิลที่ปิดยอดแล้ว ({filteredCycles.length} รอบ)
+                <Layers size={15} /> ประวัติการปิดรอบ ({filteredCycles.length} รอบ)
               </h3>
-
               <div className="space-y-3">
                 {filteredCycles.map(cycle => (
                   <div key={cycle.id} className="bg-[#181a22] border border-[#262933] rounded-xl p-4 space-y-2.5">
@@ -1385,16 +1380,16 @@ export default function App() {
                       <div>
                         <h4 className="font-bold text-white text-sm">{cycle.title}</h4>
                         <div className="text-[11px] text-[#8e94a4] mt-0.5">
-                          ปิดยอดเมื่อ {new Date(cycle.createdAt).toLocaleDateString('th-TH')} • รวม {cycle.jobCount} เรื่อง
+                          ปิดเมื่อ {new Date(cycle.createdAt).toLocaleDateString('th-TH')} • รวม {cycle.jobCount} เรื่อง
                         </div>
                       </div>
                       
                       <button 
                         onClick={() => handleRollbackCycle(cycle)}
                         className="text-[11px] text-[#8e94a4] hover:text-red-400 flex items-center gap-1 bg-[#12141a] border border-[#262933] px-2 py-1 rounded-lg transition"
-                        title="ดึงงานรอบนี้กลับมาแก้ไข"
+                        title="ยกเลิกรอบนี้"
                       >
-                        <RotateCcw size={12} /> ดึงกลับมา
+                        <RotateCcw size={12} /> ย้อนกลับ
                       </button>
                     </div>
 
@@ -1408,15 +1403,14 @@ export default function App() {
                         <div className="font-mono text-red-400">-฿{cycle.taxAmount.toLocaleString()}</div>
                       </div>
                       <div>
-                        <div className="text-[10px] text-[#8e94a4]">ยอดรับสุทธิ</div>
+                        <div className="text-[10px] text-[#8e94a4]">รับสุทธิ</div>
                         <div className="font-mono text-red-500 font-extrabold">฿{cycle.netIncome.toLocaleString()}</div>
                       </div>
                     </div>
                   </div>
                 ))}
-
                 {filteredCycles.length === 0 && (
-                  <p className="text-xs text-[#555a66] text-center py-6">ยังไม่มีประวัติการตัดรอบบิลบน Cloud</p>
+                  <p className="text-xs text-[#555a66] text-center py-6">ยังไม่มีประวัติการปิดรอบในระบบ</p>
                 )}
               </div>
             </div>
@@ -1430,12 +1424,12 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl">
             <div className="flex justify-between items-center border-b border-[#262933] pb-2">
-              <h4 className="text-sm font-bold text-white">แก้ไขเรื่อง {editingJob.title}</h4>
+              <h4 className="text-sm font-bold text-white">แก้ไขงาน {editingJob.title}</h4>
               <button onClick={() => setEditingJob(null)} className="text-[#8e94a4] hover:text-white">
                 <X size={16} />
               </button>
             </div>
-
+            
             <div className="space-y-2.5 text-xs">
               <div>
                 <label className="text-[#8e94a4] block mb-1">ชื่อเรื่อง</label>
@@ -1469,7 +1463,7 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="text-[#8e94a4] block mb-1">จำนวนนาที</label>
+                  <label className="text-[#8e94a4] block mb-1">นาที</label>
                   <input 
                     type="number" 
                     value={editingJob.minutes}
@@ -1506,7 +1500,7 @@ export default function App() {
                 ยกเลิก
               </button>
               <button onClick={handleSaveEditJob} className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2 rounded-xl text-xs transition">
-                บันทึกการแก้ไข
+                บันทึก
               </button>
             </div>
           </div>
@@ -1526,7 +1520,7 @@ export default function App() {
         </div>
       )}
 
-      {/* 5. Bottom Nav Bar 4 ปุ่ม */}
+      {/* 5. Bottom Nav Bar 4 แท็บ */}
       <nav className="fixed bottom-0 inset-x-0 bg-[#12141a]/95 border-t border-[#262933] px-4 py-3 z-40 backdrop-blur">
         <div className="grid grid-cols-4 max-w-xl md:max-w-2xl mx-auto">
           <button 
@@ -1538,7 +1532,6 @@ export default function App() {
             <ListFilter size={20} />
             <span>คิวงาน</span>
           </button>
-
           <button 
             onClick={() => setActiveTab('calendar')} 
             className={`flex flex-col items-center justify-center gap-1 py-1 text-xs font-bold transition ${
@@ -1548,7 +1541,6 @@ export default function App() {
             <CalIcon size={20} />
             <span>ปฏิทิน</span>
           </button>
-
           <button 
             onClick={() => setActiveTab('table')} 
             className={`flex flex-col items-center justify-center gap-1 py-1 text-xs font-bold transition ${
@@ -1558,7 +1550,6 @@ export default function App() {
             <TableIcon size={20} />
             <span>ตาราง & กราฟ</span>
           </button>
-
           <button 
             onClick={() => setActiveTab('billing')} 
             className={`flex flex-col items-center justify-center gap-1 py-1 text-xs font-bold transition ${
