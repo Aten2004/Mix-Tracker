@@ -31,7 +31,8 @@ import {
   Copy,
   Check,
   Archive,
-  ArrowUpRight
+  ArrowUpRight,
+  Search
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -63,56 +64,178 @@ interface CustomDialog {
   onSubmit?: (val: string) => void;
 }
 
+function isDateLike(str: string): boolean {
+  if (!str) return false;
+  return /^\d{1,4}[-/.]\d{1,2}[-/.]\d{2,4}$/.test(str.trim());
+}
+
+function cleanDateToStandard(str: string): string {
+  if (!str) return '';
+  const clean = str.trim().replace(/\./g, '-').replace(/\//g, '-');
+  const parts = clean.split('-');
+  if (parts.length === 3) {
+    if (parts[0].length === 4) {
+      const y = parseInt(parts[0], 10);
+      const fullY = y > 2400 ? y - 543 : y;
+      return `${fullY}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+    } else {
+      const d = parts[0].padStart(2, '0');
+      const m = parts[1].padStart(2, '0');
+      let y = parseInt(parts[2], 10);
+      if (y > 2400) {
+        y = y - 543;
+      } else if (y < 100) {
+        if (y >= 60 && y <= 99) {
+          y = 2500 + y - 543;
+        } else {
+          y = 2000 + y;
+        }
+      }
+      return `${y}-${m}-${d}`;
+    }
+  }
+  return str;
+}
+
+function parseFlexibleJobInput(text1: string, text2: string) {
+  const combined = `${text1}\n${text2}`.trim();
+  let title = '';
+  let episode = '';
+  let minutes = 0;
+  let drive_url = '';
+
+  const urlMatches = combined.match(/(https?:\/\/[^\s]+)/g);
+  if (urlMatches && urlMatches.length > 0) {
+    drive_url = urlMatches[0];
+  }
+
+  const lines = combined.split('\n').map(l => l.trim()).filter(Boolean);
+  for (const line of lines) {
+    const cleanLine = line.replace(/(https?:\/\/[^\s]+)/g, '').trim();
+    if (!cleanLine) continue;
+
+    const underMatch = cleanLine.match(/([A-Za-z0-9\u0E00-\u0E7F]+)_([0-9.]+)(?:_([0-9.]+))?/);
+    if (underMatch && !isDateLike(underMatch[1])) {
+      title = underMatch[1];
+      if (underMatch[3] !== undefined) {
+        episode = underMatch[2];
+        minutes = parseFloat(underMatch[3]) || 0;
+      } else {
+        minutes = parseFloat(underMatch[2]) || 0;
+      }
+      break;
+    }
+  }
+
+  if (!title) {
+    for (const line of lines) {
+      const cleanLine = line.replace(/(https?:\/\/[^\s]+)/g, '').trim();
+      const tokens = cleanLine.split(/\t+|\s{2,}|\s+/).filter(Boolean);
+      for (const tok of tokens) {
+        if (!isDateLike(tok) && !tok.match(/^[0-9.]+$/)) {
+          title = tok;
+          break;
+        }
+      }
+      if (title) break;
+    }
+  }
+
+  const allTokens = combined
+    .replace(/(https?:\/\/[^\s]+)/g, '')
+    .split(/\t+|\s+/)
+    .map(t => t.trim())
+    .filter(Boolean);
+
+  const foundDates: string[] = [];
+  for (const tok of allTokens) {
+    if (isDateLike(tok)) {
+      foundDates.push(cleanDateToStandard(tok));
+    }
+  }
+
+  let date_glao = '';
+  let date_pak = '';
+  let date_mix = '';
+  let date_sub = '';
+  let date_deadline = '';
+
+  if (foundDates.length >= 5) {
+    date_glao = foundDates[0];
+    date_pak = foundDates[1];
+    date_mix = foundDates[2];
+    date_sub = foundDates[3];
+    date_deadline = foundDates[4];
+  } else if (foundDates.length === 4) {
+    date_glao = foundDates[0];
+    date_pak = foundDates[1];
+    date_mix = foundDates[2];
+    date_deadline = foundDates[3];
+  } else if (foundDates.length === 3) {
+    date_pak = foundDates[0];
+    date_mix = foundDates[1];
+    date_deadline = foundDates[2];
+  } else if (foundDates.length === 2) {
+    date_mix = foundDates[0];
+    date_deadline = foundDates[1];
+  } else if (foundDates.length === 1) {
+    date_deadline = foundDates[0];
+    date_mix = foundDates[0];
+  }
+
+  return {
+    title,
+    episode,
+    minutes,
+    drive_url,
+    date_glao,
+    date_pak,
+    date_mix,
+    date_sub,
+    date_deadline
+  };
+}
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'queue' | 'calendar' | 'table' | 'billing'>('queue');
   const [tableSubView, setTableSubView] = useState<'current' | 'billed' | 'analytics'>('current');
   const [loading, setLoading] = useState(true);
 
-  // Workspaces
+  const [tableSearchQuery, setTableSearchQuery] = useState('');
+
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
   const [selectedWs, setSelectedWs] = useState<string>('ทีมซีรีส์จีน (GS/DW)');
 
-  // Main Datasets จาก Supabase
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 
-  // State ยุบ/ขยาย กล่องโน้ต และเป้าหมาย
   const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isTargetCollapsed, setIsTargetCollapsed] = useState(false);
   const [showCalcGuide, setShowCalcGuide] = useState(false);
 
-  // ตัวเลือกสถานะตอนบันทึกงานใหม่ (รอบปัจจุบัน vs ประวัติเก่า)
   const [addJobTargetStatus, setAddJobTargetStatus] = useState<'pending' | 'billed'>('pending');
 
-  // เป้าหมายรายได้สุทธิ (Net Target)
   const [monthlyTarget, setMonthlyTarget] = useState<number>(14700);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [targetInput, setTargetInput] = useState('14700');
 
-  // Form Inputs
   const [quickInput, setQuickInput] = useState('');
-  const [driveUrlInput, setDriveUrlInput] = useState('');
   const [sheetPaste, setSheetPaste] = useState('');
 
-  // Note Inputs
   const [noteDate, setNoteDate] = useState('');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
 
-  // Editing Job Modal
   const [editingJob, setEditingJob] = useState<JobItem | null>(null);
 
-  // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 9, 1));
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
   const [todayStr, setTodayStr] = useState<string>('');
   const [todayDisplay, setTodayDisplay] = useState<string>('');
 
-  // Cutoff Billing Date State
   const [cutoffDate, setCutoffDate] = useState<string>('2026-10-31');
 
-  // Custom Unified Dialog State
   const [dialogState, setDialogState] = useState<CustomDialog | null>(null);
   const [promptInputValue, setPromptInputValue] = useState('');
   const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
@@ -180,7 +303,6 @@ export default function App() {
     setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
   };
 
-  // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -347,44 +469,27 @@ export default function App() {
   };
 
   const handleAddJob = async () => {
-    let finalTitle = '';
-    let finalEpisode = '';
-    let finalMinutes = 0;
-    let finalDriveUrl = driveUrlInput.trim();
-    let dates = {
-      date_glao: '',
-      date_pak: '',
-      date_mix: '',
-      date_sub: '',
-      date_deadline: ''
+    const parsed = parseFlexibleJobInput(quickInput, sheetPaste);
+    let finalTitle = parsed.title;
+    const finalEpisode = parsed.episode;
+    const finalMinutes = parsed.minutes;
+    const finalDriveUrl = parsed.drive_url;
+    const dates = {
+      date_glao: parsed.date_glao,
+      date_pak: parsed.date_pak,
+      date_mix: parsed.date_mix,
+      date_sub: parsed.date_sub,
+      date_deadline: parsed.date_deadline || parsed.date_mix || new Date().toISOString().split('T')[0]
     };
-
-    if (quickInput.trim()) {
-      const q = parseQuickCode(quickInput);
-      finalTitle = q.title;
-      finalEpisode = q.episode;
-      finalMinutes = q.minutes;
-      if (!finalDriveUrl && q.drive_url) finalDriveUrl = q.drive_url;
-    }
-
-    if (sheetPaste.trim()) {
-      const s = parseSheetRow(sheetPaste);
-      if (s) {
-        if (!finalTitle && s.title) finalTitle = s.title;
-        dates = {
-          date_glao: s.date_glao || '',
-          date_pak: s.date_pak || '',
-          date_mix: s.date_mix || '',
-          date_sub: s.date_sub || '',
-          date_deadline: s.date_deadline || ''
-        };
-      }
-    }
 
     if (isDateString(finalTitle)) finalTitle = 'งานไม่มีชื่อ';
 
     if (!finalTitle) {
-      setDialogState({ title: 'ข้อมูลไม่ครบ', desc: 'กรุณากรอกรหัสงานหรือข้อมูลจากชีท', type: 'alert' });
+      setDialogState({ 
+        title: 'ข้อมูลไม่ครบ', 
+        desc: 'กรุณากรอกรหัสงาน เช่น GS273_55_76 หรือวางข้อความที่มีชื่อเรื่อง', 
+        type: 'alert' 
+      });
       return;
     }
 
@@ -404,7 +509,6 @@ export default function App() {
 
     if (!error) {
       setQuickInput('');
-      setDriveUrlInput('');
       setSheetPaste('');
       fetchData();
       setDialogState({ 
@@ -465,7 +569,6 @@ export default function App() {
     });
   };
 
-  // ย้ายงานไปสถานะปิดรอบแล้วโดยตรง (Archive)
   const handleMarkJobAsBilled = (job: JobItem) => {
     setDialogState({
       type: 'confirm',
@@ -479,7 +582,6 @@ export default function App() {
     });
   };
 
-  // ดึงงานจากตารางปิดรอบแล้วกลับเข้ามาในคิว
   const handleReopenJob = (job: JobItem) => {
     setDialogState({
       type: 'confirm',
@@ -528,7 +630,6 @@ export default function App() {
     });
   };
 
-  // คัดลอกรหัสงานรายเรื่อง (ชื่อ_ตอน_นาที) แบบกดแล้วก็อปทันที
   const handleCopyJob = (job: JobItem) => {
     const code = job.episode ? `${job.title}_${job.episode}_${job.minutes}` : `${job.title}_${job.minutes}`;
     navigator.clipboard.writeText(code);
@@ -538,30 +639,39 @@ export default function App() {
     }, 1500);
   };
 
-  // ===================== สรุปและแยกชุดข้อมูล =====================
   const filteredJobs = useMemo(() => jobs.filter(j => j.workspace === selectedWs), [jobs, selectedWs]);
   const filteredNotes = useMemo(() => notes.filter(n => n.workspace === selectedWs), [notes, selectedWs]);
   const filteredCycles = useMemo(() => billingCycles.filter(b => b.workspace === selectedWs), [billingCycles, selectedWs]);
 
-  // 1. งานที่รอคิดเงินทั้งหมด (Pending)
   const pendingJobs = useMemo(() => filteredJobs.filter(j => j.status === 'pending'), [filteredJobs]);
-
-  // 2. งานในคิวรอบปัจจุบัน (แสดงงาน Pending ทั้งหมด ไม่โดนกรองเดือนซ่อน รองรับงานข้ามเดือน 100%)
   const currentCyclePendingJobs = useMemo(() => pendingJobs, [pendingJobs]);
-
-  // 3. งานที่ปิดรอบไปแล้วทั้งหมด (Billed / Historical Jobs)
   const billedJobs = useMemo(() => filteredJobs.filter(j => j.status === 'billed'), [filteredJobs]);
 
-  // 4. งานในรอบที่เลือกนับยอดเงิน (Active Billed)
+  const searchedCurrentJobs = useMemo(() => {
+    if (!tableSearchQuery.trim()) return currentCyclePendingJobs;
+    const q = tableSearchQuery.trim().toLowerCase();
+    return currentCyclePendingJobs.filter(j => 
+      j.title.toLowerCase().includes(q) || 
+      j.episode.toLowerCase().includes(q)
+    );
+  }, [currentCyclePendingJobs, tableSearchQuery]);
+
+  const searchedBilledJobs = useMemo(() => {
+    if (!tableSearchQuery.trim()) return billedJobs;
+    const q = tableSearchQuery.trim().toLowerCase();
+    return billedJobs.filter(j => 
+      j.title.toLowerCase().includes(q) || 
+      j.episode.toLowerCase().includes(q)
+    );
+  }, [billedJobs, tableSearchQuery]);
+
   const activeBilledJobs = useMemo(() => currentCyclePendingJobs.filter(j => j.isIncludedInBilling), [currentCyclePendingJobs]);
 
-  // คำนวณยอดเงินของงานทั้งหมดที่อยู่ในคิว
   const currentTotalMins = useMemo(() => activeBilledJobs.reduce((acc, cur) => acc + (Number(cur.minutes) || 0), 0), [activeBilledJobs]);
   const currentGross = currentTotalMins * 15;
   const currentTax = currentGross * 0.03;
   const currentNet = currentGross - currentTax;
 
-  // คัดลอกสรุปทั้งหมดของรอบปัจจุบัน
   const handleCopyAllJobs = () => {
     if (currentCyclePendingJobs.length === 0) {
       setDialogState({
@@ -589,7 +699,6 @@ export default function App() {
     });
   };
 
-  // คำนวณเป้าหมาย (Net Target)
   const netRatePerMin = 15 * 0.97;
   const totalMinsNeeded = Math.ceil(monthlyTarget / netRatePerMin);
   const remainingMinsNeeded = Math.max(0, totalMinsNeeded - currentTotalMins);
@@ -605,7 +714,6 @@ export default function App() {
 
   const remainingMoviesEst = Math.ceil(remainingMinsNeeded / avgMovieLength);
 
-  // สถิติ (Analytics)
   const analyticsData = useMemo(() => {
     let gsMins = 0;
     let gsCount = 0;
@@ -732,37 +840,38 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-[#f0f2f5] pb-28 font-sans select-none">
       
-      {/* 1. Top Bar */}
-      <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-3 sm:px-4 py-2.5 sm:py-3.5">
-        <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-2">
+      {/* 1. Top Bar ปรับใหญ่และโปร่งขึ้น ย้ายเพิ่มทีมไปใน Dropdown */}
+      <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-4 sm:px-5 py-3 sm:py-4">
+        <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 min-w-0">
               <select 
                 value={selectedWs} 
                 onChange={(e) => {
-                  setSelectedWs(e.target.value);
-                  localStorage.setItem('mix_selected_ws', e.target.value);
+                  if (e.target.value === '__add_new__') {
+                    handleAddWorkspace();
+                  } else {
+                    setSelectedWs(e.target.value);
+                    localStorage.setItem('mix_selected_ws', e.target.value);
+                  }
                 }}
-                className="bg-transparent text-white font-black text-lg sm:text-xl focus:outline-none cursor-pointer max-w-[200px] xs:max-w-[260px] sm:max-w-md truncate"
+                className="bg-transparent text-white font-black text-xl sm:text-2xl focus:outline-none cursor-pointer max-w-[220px] xs:max-w-[280px] sm:max-w-md truncate tracking-tight"
               >
                 {workspaces.map(ws => <option key={ws} value={ws} className="bg-[#12141a] text-white">{ws}</option>)}
+                <option value="__add_new__" className="bg-[#181a22] text-red-400 font-bold">➕ เพิ่มทีมใหม่...</option>
               </select>
             </div>
           </div>
 
-          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-            <button onClick={fetchData} title="รีเฟรช Cloud" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
-              <RefreshCw size={14} className={loading ? 'animate-spin text-red-500' : ''} />
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button onClick={fetchData} title="รีเฟรช Cloud" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
+              <RefreshCw size={15} className={loading ? 'animate-spin text-red-500' : ''} />
             </button>
-            <button onClick={handleRenameWorkspace} title="เปลี่ยนชื่อทีม" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
-              <Edit3 size={14} />
+            <button onClick={handleRenameWorkspace} title="เปลี่ยนชื่อทีม" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
+              <Edit3 size={15} />
             </button>
-            <button onClick={handleDeleteWorkspace} title="ลบทีม" className="p-1.5 sm:p-2 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl transition">
-              <Trash2 size={14} />
-            </button>
-            <button onClick={handleAddWorkspace} className="text-xs bg-red-600 hover:bg-red-500 text-white font-bold px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl transition flex items-center gap-1 shadow-md whitespace-nowrap">
-              <Plus size={14} />
-              <span className="inline">เพิ่มทีม</span>
+            <button onClick={handleDeleteWorkspace} title="ลบทีม" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl transition">
+              <Trash2 size={15} />
             </button>
           </div>
         </div>
@@ -770,25 +879,31 @@ export default function App() {
 
       <div className="max-w-xl md:max-w-2xl mx-auto px-3 sm:px-4 pt-4 sm:pt-5 space-y-3.5 sm:space-y-4">
 
-        {/* 1. ยอดรวมนาที & รายได้สุทธิ */}
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
-          <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 shadow-sm">
-            <span className="text-xs text-[#8e94a4] flex items-center gap-1.5 font-medium">
-              <Clock size={14} /> นาทีในรอบนี้
+        {/* 1. ช่องนาทีรอบ & ยอดสุทธิ ขยายใหญ่ เด่น ชัดเจน */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 sm:p-5 shadow-sm">
+            <span className="text-xs sm:text-sm text-[#8e94a4] flex items-center gap-1.5 font-medium">
+              <Clock size={16} /> นาทีในรอบนี้
             </span>
-            <p className="text-2xl sm:text-3xl font-black text-white mt-1.5">{currentTotalMins} <span className="text-xs font-normal text-[#8e94a4]">นาที</span></p>
-            <p className="text-[11px] sm:text-xs text-red-400 font-semibold mt-0.5">{activeBilledJobs.length} เรื่องที่รอนับยอด</p>
+            <p className="text-2xl xs:text-3xl sm:text-4xl font-black text-white mt-2 truncate">
+              {currentTotalMins} <span className="text-xs sm:text-sm font-normal text-[#8e94a4]">นาที</span>
+            </p>
+            <p className="text-[11px] sm:text-xs text-red-400 font-semibold mt-1 truncate">
+              {activeBilledJobs.length} เรื่องที่รอนับยอด
+            </p>
           </div>
 
-          <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-3.5 sm:p-4 relative overflow-hidden shadow-sm">
-            <div className="absolute top-0 right-0 w-24 h-24 bg-red-600/10 rounded-full blur-2xl pointer-events-none" />
-            <span className="text-xs text-[#8e94a4] flex items-center gap-1 font-medium truncate">
-              <DollarSign size={14} className="text-red-500 shrink-0" /> ยอดสุทธิ (หัก 3%)
+          <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-4 sm:p-5 relative overflow-hidden shadow-sm">
+            <div className="absolute top-0 right-0 w-28 h-28 bg-red-600/10 rounded-full blur-2xl pointer-events-none" />
+            <span className="text-xs sm:text-sm text-[#8e94a4] flex items-center gap-1.5 font-medium truncate">
+              <DollarSign size={16} className="text-red-500 shrink-0" /> ยอดสุทธิ (หัก 3%)
             </span>
-            <p className="text-2xl sm:text-3xl font-black text-red-500 mt-1.5">
+            <p className="text-2xl xs:text-3xl sm:text-4xl font-black text-red-500 mt-2 truncate">
               ฿{currentNet.toLocaleString('th-TH', { maximumFractionDigits: 0 })}
             </p>
-            <p className="text-[10px] sm:text-[11px] text-[#8e94a4] mt-0.5 truncate">รวม ฿{currentGross.toLocaleString()} | ภาษี ฿{currentTax.toLocaleString()}</p>
+            <p className="text-[10px] sm:text-xs text-[#8e94a4] mt-1 truncate">
+              รวม ฿{currentGross.toLocaleString()} | ภาษี ฿{currentTax.toLocaleString()}
+            </p>
           </div>
         </div>
 
@@ -889,19 +1004,19 @@ export default function App() {
                   <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2 text-xs mt-2">
                     <div>
                       <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
-                      <span className="font-mono font-bold text-white text-sm">
+                      <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
                         {remainingMinsNeeded > 0 ? `${remainingMinsNeeded} นาที` : 'ครบแล้ว! 🎉'}
                       </span>
                       {remainingMoneyNeeded > 0 && (
-                        <span className="text-[10px] text-red-400 block mt-0.5">(ยังขาดอีก ฿{remainingMoneyNeeded.toLocaleString()})</span>
+                        <span className="text-[10px] text-red-400 block mt-0.5 truncate">(ยังขาดอีก ฿{remainingMoneyNeeded.toLocaleString()})</span>
                       )}
                     </div>
                     <div>
                       <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
-                      <span className="font-mono font-bold text-white text-sm">
+                      <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
                         {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ครบแล้ว! 🎉'}
                       </span>
-                      <span className="text-[10px] text-[#6b7280] block mt-0.5">(เฉลี่ยเรื่องละ {avgMovieLength} นาที)</span>
+                      <span className="text-[10px] text-[#6b7280] block mt-0.5 truncate">(เฉลี่ยเรื่องละ {avgMovieLength} นาที)</span>
                     </div>
                   </div>
                 </div>
@@ -1058,11 +1173,11 @@ export default function App() {
         {activeTab === 'queue' && (
           <div className="space-y-4">
             
-            {/* กล่องบันทึกงานใหม่ พร้อมสลับสถานะ */}
+            {/* กล่องบันทึกงานใหม่ (ภาษาไทยล้วน + 2 ช่องยืดหยุ่นสูง) */}
             <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-5 space-y-3.5">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่ (Cloud Storage)</h2>
-                <div className="flex bg-[#0a0b0e] p-0.5 rounded-lg border border-[#262933] text-[11px]">
+              <div className="flex justify-between items-center gap-2 flex-wrap">
+                <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่</h2>
+                <div className="flex bg-[#0a0b0e] p-0.5 rounded-lg border border-[#262933] text-[10px] sm:text-[11px]">
                   <button 
                     type="button"
                     onClick={() => setAddJobTargetStatus('pending')}
@@ -1085,38 +1200,32 @@ export default function App() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-3">
                 <div>
-                  <label className="text-xs text-[#8e94a4] block mb-1">1. ข้อความด่วน (ชื่อ_ตอน_นาที)</label>
-                  <input 
-                    type="text" 
-                    placeholder="เช่น GS273_55_76 หรือ DW_12_90"
+                  <label className="text-xs text-[#8e94a4] block mb-1">
+                    1. ข้อมูลเรื่อง / รหัสด่วน (และลิงก์ Google Drive ถ้ามี)
+                  </label>
+                  <textarea 
+                    rows={2}
+                    placeholder="เช่น GS273_55_76 หรือวางพร้อมลิงก์ Drive เช่น GS273_55_76 https://drive.google.com/..."
                     value={quickInput}
                     onChange={(e) => setQuickInput(e.target.value)}
-                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
+                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
                   />
                 </div>
-                <div>
-                  <label className="text-xs text-[#8e94a4] block mb-1">2. ลิงก์ Google Drive (ถ้ามี)</label>
-                  <input 
-                    type="text" 
-                    placeholder="https://drive.google.com/drive/folders/..."
-                    value={driveUrlInput}
-                    onChange={(e) => setDriveUrlInput(e.target.value)}
-                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-[#454954] focus:border-red-500 focus:outline-none"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <label className="text-xs text-[#8e94a4] block mb-1">3. หรือวางแถวจาก Sheet (ก๊อปปี้ทั้งแถว)</label>
-                <textarea 
-                  rows={2}
-                  placeholder="ตัวอย่าง: GS273  29-10-26  30-10-26  31-10-26  1-11-26  2-11-26"
-                  value={sheetPaste}
-                  onChange={(e) => setSheetPaste(e.target.value)}
-                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
-                />
+                <div>
+                  <label className="text-xs text-[#8e94a4] block mb-1">
+                    2. ข้อมูลวันที่ / แถวเดดไลน์ (หรือวางทั้งแถวจาก Sheet)
+                  </label>
+                  <textarea 
+                    rows={2}
+                    placeholder="เช่น GS273 29-10-26 30-10-26 31-10-26 1-11-26 2-11-26 หรือใส่วันที่เดดไลน์"
+                    value={sheetPaste}
+                    onChange={(e) => setSheetPaste(e.target.value)}
+                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
+                  />
+                </div>
               </div>
 
               <button 
@@ -1127,14 +1236,14 @@ export default function App() {
               </button>
             </div>
 
-            {/* รายการคิวงาน (แสดงงานทั้งหมดในคิว รองรับงานข้ามเดือน) */}
+            {/* รายการคิวงาน */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
                   <span className="text-xs font-bold text-[#8e94a4] uppercase">
                     คิวงานปัจจุบัน ({currentCyclePendingJobs.length})
                   </span>
-                  <span className="text-[10px] bg-red-950/40 text-red-400 border border-red-900/40 px-2 py-0.5 rounded-md font-mono">
+                  <span className="text-[10px] bg-red-950/40 text-red-400 border border-red-900/40 px-1.5 sm:px-2 py-0.5 rounded-md font-mono">
                     รองรับข้ามเดือน
                   </span>
                 </div>
@@ -1146,7 +1255,7 @@ export default function App() {
                   <p>{loading ? 'กำลังโหลดข้อมูลจาก Supabase...' : 'ไม่มีงานค้างในคิว'}</p>
                   {billedJobs.length > 0 && (
                     <p className="text-[11px] text-[#8e94a4]">
-                      (มีงานที่ปิดรอบไปแล้ว {billedJobs.length} เรื่อง ดูได้ในแท็บ &quot;ตาราง & กราฟ&quot;)
+                      (มีงานที่ปิดรอบไปแล้ว {billedJobs.length} เรื่อง ดูได้ในแท็บ &quot;ตาราง&quot;)
                     </p>
                   )}
                 </div>
@@ -1157,61 +1266,30 @@ export default function App() {
                   return (
                     <div 
                       key={job.id} 
-                      className={`rounded-2xl p-3.5 sm:p-4 transition border shadow-sm ${
+                      className={`rounded-2xl p-3 sm:p-4 transition border shadow-sm ${
                         isDW 
                           ? 'bg-gradient-to-b from-[#1b1510] to-[#14110e] border-amber-500/35 hover:border-amber-500/60' 
                           : 'bg-gradient-to-b from-[#0e1620] to-[#0c1219] border-cyan-500/35 hover:border-cyan-500/60'
                       } ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
-                      <div className="flex justify-between items-start gap-2">
-                        <div className="min-w-0 flex-1">
-                          {/* 1. แถวรหัสและชื่อเรื่อง */}
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
-                              isDW 
-                                ? 'bg-amber-400/15 text-amber-300 border-amber-400/40' 
-                                : 'bg-cyan-400/15 text-cyan-300 border-cyan-400/40'
-                            }`}>
-                              {isDW ? 'DW' : 'GS'}
-                            </span>
+                      {/* แถวที่ 1: หัวการ์ด - รหัส + ชื่อเรื่องยาวได้เต็มที่ + 4 ปุ่มไอคอนขวามือ */}
+                      <div className="flex justify-between items-center gap-2">
+                        <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
+                            isDW 
+                              ? 'bg-amber-400/15 text-amber-300 border-amber-400/40' 
+                              : 'bg-cyan-400/15 text-cyan-300 border-cyan-400/40'
+                          }`}>
+                            {isDW ? 'DW' : 'GS'}
+                          </span>
 
-                            <span className="font-extrabold text-white text-base sm:text-lg tracking-wide truncate">
-                              {job.title}
-                            </span>
-                          </div>
-
-                          {/* 2. แถวจำนวนตอน (เช่น 50 ตอน) และ Google Drive อยู่บรรทัดเดียวกัน */}
-                          {(job.episode || job.drive_url) && (
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              {job.episode && (
-                                <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium shrink-0">
-                                  {job.episode} ตอน
-                                </span>
-                              )}
-
-                              {job.drive_url && (
-                                <a 
-                                  href={job.drive_url} 
-                                  target="_blank" 
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] bg-[#1c1f28] hover:bg-[#262a36] text-red-300 border border-[#262933] px-2.5 py-0.5 rounded-lg transition font-medium"
-                                >
-                                  <FolderOpen size={12} className="text-amber-400" /> Google Drive
-                                </a>
-                              )}
-                            </div>
-                          )}
-
-                          {/* 3. แถวจำนวนนาทีและยอดเงิน */}
-                          <div className="mt-1.5">
-                            <span className="text-xs font-bold text-red-400">
-                              {job.minutes} นาที <span className="text-[#8e94a4] font-normal">(฿{(job.minutes * 15).toLocaleString()})</span>
-                            </span>
-                          </div>
+                          <span className="font-extrabold text-white text-base sm:text-lg tracking-wide truncate">
+                            {job.title}
+                          </span>
                         </div>
 
-                        {/* เมนูด้านขวา */}
-                        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                        {/* 4 ปุ่มไอคอนจัดการขวามือ */}
+                        <div className="flex items-center gap-1 shrink-0">
                           <button 
                             onClick={() => handleCopyJob(job)} 
                             className={`p-1.5 rounded-lg border transition ${
@@ -1221,51 +1299,82 @@ export default function App() {
                             }`}
                             title="คัดลอก (ชื่อ_ตอน_นาที)"
                           >
-                            {isCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                            {isCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
                           </button>
                           <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg border border-[#262933] transition" title="แก้ไขงาน">
-                            <Edit3 size={14} />
-                          </button>
-                          <button 
-                            onClick={() => toggleJobBilling(job)}
-                            className={`text-xs px-2.5 sm:px-3 py-1.5 rounded-xl border font-semibold whitespace-nowrap transition ${
-                              job.isIncludedInBilling 
-                                ? 'border-red-500/50 text-red-400 bg-red-950/40 hover:bg-red-950/60' 
-                                : 'border-[#262933] text-[#555a66] bg-[#181a22] hover:bg-[#262a36]'
-                            }`}
-                          >
-                            {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
+                            <Edit3 size={13} />
                           </button>
                           <button 
                             onClick={() => handleMarkJobAsBilled(job)} 
                             className="p-1.5 bg-[#1c1f28] hover:bg-amber-950/40 text-[#8e94a4] hover:text-amber-400 rounded-lg border border-[#262933] transition"
                             title="ย้ายไปตารางประวัติปิดรอบแล้ว"
                           >
-                            <Archive size={14} />
+                            <Archive size={13} />
                           </button>
                           <button onClick={() => handleDeleteJob(job.id, job.title)} className="p-1.5 text-[#555a66] hover:text-red-400 transition" title="ลบงาน">
-                            <Trash2 size={15} />
+                            <Trash2 size={14} />
                           </button>
                         </div>
                       </div>
 
-                      {/* Mini-table 5 วันที่ขั้นตอนทำงาน */}
-                      <div className="mt-3 pt-2.5 border-t border-[#262933]">
-                        <div className="grid grid-cols-5 text-center text-[10px] uppercase font-bold text-[#6b7280] pb-1">
+                      {/* แถวที่ 2: ลำดับสายตา ตอน -> นาที (เงิน) -> Google Drive สีเขียว และปุ่มคิดเงิน */}
+                      <div className="flex justify-between items-center gap-2 mt-2 pt-2 border-t border-[#1c1f28]/60 flex-wrap">
+                        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                          {/* 1. ตอน */}
+                          {job.episode && (
+                            <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium shrink-0">
+                              {job.episode} ตอน
+                            </span>
+                          )}
+
+                          {/* 2. นาที (ยอดเงิน) วางต่อจากตอน */}
+                          <span className="text-xs font-bold text-red-400 whitespace-nowrap">
+                            {job.minutes} นาที <span className="text-[#8e94a4] font-normal">(฿{(job.minutes * 15).toLocaleString()})</span>
+                          </span>
+
+                          {/* 3. Google Drive สีเขียว */}
+                          {job.drive_url && (
+                            <a 
+                              href={job.drive_url} 
+                              target="_blank" 
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] bg-[#0e2a1b] hover:bg-[#133824] text-emerald-300 border border-emerald-600/40 px-2.5 py-0.5 rounded-lg transition font-medium shrink-0"
+                            >
+                              <FolderOpen size={12} className="text-emerald-400" /> Google Drive
+                            </a>
+                          )}
+                        </div>
+
+                        {/* ปุ่มคิดเงินรอบนี้ */}
+                        <button 
+                          onClick={() => toggleJobBilling(job)}
+                          className={`text-[11px] sm:text-xs px-2.5 py-1 rounded-xl border font-semibold whitespace-nowrap transition shrink-0 ${
+                            job.isIncludedInBilling 
+                              ? 'border-red-500/50 text-red-400 bg-red-950/40 hover:bg-red-950/60' 
+                              : 'border-[#262933] text-[#555a66] bg-[#181a22] hover:bg-[#262a36]'
+                          }`}
+                        >
+                          {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
+                        </button>
+                      </div>
+
+                      {/* แถวที่ 3: Mini-table 5 วันที่ขั้นตอนทำงาน */}
+                      <div className="mt-2.5 pt-2 border-t border-[#262933]">
+                        <div className="grid grid-cols-5 text-center text-[9px] sm:text-[10px] uppercase font-bold text-[#6b7280] pb-1">
                           <div>เกลา</div>
                           <div>พากย์</div>
                           <div className="text-red-400 font-extrabold">มิกซ์</div>
                           <div>ซับ</div>
                           <div className="text-amber-400 font-extrabold">เดดไลน์</div>
                         </div>
-                        <div className="grid grid-cols-5 text-center text-xs font-mono bg-[#0a0b0e]/90 rounded-xl py-1.5 border border-[#262933]">
-                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_glao)}</div>
-                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_pak)}</div>
-                          <div className="text-red-200 font-bold bg-red-950/70 border border-red-500/60 rounded-lg mx-0.5 py-0.5">
+                        <div className="grid grid-cols-5 text-center text-[10px] sm:text-xs font-mono bg-[#0a0b0e]/90 rounded-xl py-1.5 border border-[#262933]">
+                          <div className="text-[#8e94a4] truncate">{formatToDisplayDate(job.date_glao)}</div>
+                          <div className="text-[#8e94a4] truncate">{formatToDisplayDate(job.date_pak)}</div>
+                          <div className="text-red-200 font-bold bg-red-950/70 border border-red-500/60 rounded-lg mx-0.5 py-0.5 truncate">
                             {formatToDisplayDate(job.date_mix)}
                           </div>
-                          <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_sub || '')}</div>
-                          <div className="text-amber-300 font-bold">{formatToDisplayDate(job.date_deadline)}</div>
+                          <div className="text-[#8e94a4] truncate">{formatToDisplayDate(job.date_sub || '')}</div>
+                          <div className="text-amber-300 font-bold truncate">{formatToDisplayDate(job.date_deadline)}</div>
                         </div>
                       </div>
 
@@ -1348,7 +1457,7 @@ export default function App() {
                       {isToday && (
                         <span className="absolute -inset-1 rounded-full border-2 border-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] pointer-events-none" />
                       )}
-                      <div className={`z-10 w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition ${
+                      <div className={`z-10 w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-full text-[11px] sm:text-xs font-bold transition ${
                         isMixDay ? 'bg-red-600 text-white font-black shadow-lg shadow-red-600/60 ring-2 ring-red-400 scale-105' : 
                         isDeadlineDay ? 'border-2 border-amber-400 text-amber-300 font-bold bg-[#181a22]' : 
                         isSelected ? 'border-2 border-white text-white' : 
@@ -1359,7 +1468,7 @@ export default function App() {
                     </div>
 
                     {mixJobsToday.length > 0 ? (
-                      <span className="text-[9px] text-red-400 font-black leading-none mt-0.5 truncate max-w-[48px]">
+                      <span className="text-[8px] sm:text-[9px] text-red-400 font-black leading-none mt-0.5 truncate max-w-[40px] sm:max-w-[48px]">
                         {mixJobsToday[0].title}
                       </span>
                     ) : isToday ? (
@@ -1407,7 +1516,7 @@ export default function App() {
           </div>
         )}
 
-        {/* ======================= TAB 3: ตาราง & กราฟ ======================= */}
+        {/* ======================= TAB 3: ตาราง ======================= */}
         {activeTab === 'table' && (
           <div className="space-y-4">
             
@@ -1438,13 +1547,35 @@ export default function App() {
               </button>
             </div>
 
+            {/* ช่องค้นหา/ตัวกรองชื่อเรื่องในหน้าตาราง */}
+            {(tableSubView === 'current' || tableSubView === 'billed') && (
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e94a4]" />
+                <input
+                  type="text"
+                  placeholder="ค้นหาชื่อเรื่อง หรือ ตอน..."
+                  value={tableSearchQuery}
+                  onChange={(e) => setTableSearchQuery(e.target.value)}
+                  className="w-full bg-[#12141a] border border-[#262933] rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                />
+                {tableSearchQuery && (
+                  <button 
+                    onClick={() => setTableSearchQuery('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e94a4] hover:text-white p-1"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* ตารางที่ 1: งานในรอบปัจจุบัน */}
             {tableSubView === 'current' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
                 <div className="flex justify-between items-center gap-2">
                   <div>
                     <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                      งานในรอบนี้ ({currentCyclePendingJobs.length} เรื่อง)
+                      งานในรอบนี้ ({searchedCurrentJobs.length} เรื่อง)
                     </h3>
                   </div>
                   <button 
@@ -1475,7 +1606,7 @@ export default function App() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1c1f28]/60">
-                      {currentCyclePendingJobs.map((j, idx) => {
+                      {searchedCurrentJobs.map((j, idx) => {
                         const isDW = j.title.toUpperCase().startsWith('DW');
                         const isCopied = copiedJobId === j.id;
                         const rowBg = isDW 
@@ -1553,9 +1684,11 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {currentCyclePendingJobs.length === 0 && (
+                      {searchedCurrentJobs.length === 0 && (
                         <tr>
-                          <td colSpan={11} className="p-6 text-center text-[#555a66]">ไม่มีงานค้างในรอบนี้</td>
+                          <td colSpan={11} className="p-6 text-center text-[#555a66]">
+                            {tableSearchQuery ? 'ไม่พบงานที่ตรงกับคำค้นหา' : 'ไม่มีงานค้างในรอบนี้'}
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -1564,13 +1697,13 @@ export default function App() {
               </div>
             )}
 
-            {/* ตารางที่ 2: งานที่ปิดรอบไปแล้ว */}
+            {/* ตารางที่ 2: งานที่ปิดรอบแล้ว */}
             {tableSubView === 'billed' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
                 <div className="flex justify-between items-center gap-2">
                   <div>
                     <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <Archive size={14} /> งานที่ปิดรอบแล้ว ({billedJobs.length} เรื่อง)
+                      <Archive size={14} /> งานที่ปิดรอบแล้ว ({searchedBilledJobs.length} เรื่อง)
                     </h3>
                     <p className="text-[11px] text-[#8e94a4] mt-0.5">
                       รายการประวัติที่คิดเงินแล้ว ไม่ถูกนำมาคิดรวมในรอบปัจจุบัน
@@ -1579,21 +1712,21 @@ export default function App() {
                 </div>
 
                 <div className="overflow-x-auto pb-2 scrollbar-thin">
-                  <table className="w-full text-left text-xs border-collapse min-w-[700px]">
+                  <table className="w-full text-left text-xs border-collapse min-w-[540px]">
                     <thead>
                       <tr className="border-b border-[#262933] text-amber-400 font-bold bg-[#181a22]">
                         <th className="py-2.5 px-2 text-center w-12">รหัส</th>
-                        <th className="py-2.5 pl-2 pr-1 text-left w-36">ชื่อเรื่อง</th>
-                        <th className="py-2.5 pl-1 pr-2 text-center w-14">ตอน</th>
+                        <th className="py-2.5 pl-2 pr-1 text-left w-24">ชื่อเรื่อง</th>
+                        <th className="py-2.5 pl-1 pr-2 text-center w-12">ตอน</th>
                         <th className="py-2.5 px-2 text-center w-16">นาที</th>
                         <th className="py-2.5 px-2 text-center w-12">Drive</th>
                         <th className="py-2.5 px-2.5 text-center w-24">วันมิกซ์</th>
                         <th className="py-2.5 px-2.5 text-center w-24">เดดไลน์</th>
-                        <th className="py-2.5 px-3 text-center w-36">จัดการ</th>
+                        <th className="py-2.5 px-3 text-center w-32">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1c1f28]/60">
-                      {billedJobs.map((j) => {
+                      {searchedBilledJobs.map((j) => {
                         const isDW = j.title.toUpperCase().startsWith('DW');
                         const isCopied = copiedJobId === j.id;
                         return (
@@ -1607,10 +1740,10 @@ export default function App() {
                                 {isDW ? 'DW' : 'GS'}
                               </span>
                             </td>
-                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-36">
+                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-24">
                               {j.title}
                             </td>
-                            <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-14">
+                            <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-12">
                               {j.episode ? (
                                 <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md font-mono border border-[#262933]">
                                   {j.episode}
@@ -1660,9 +1793,11 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {billedJobs.length === 0 && (
+                      {searchedBilledJobs.length === 0 && (
                         <tr>
-                          <td colSpan={8} className="p-6 text-center text-[#555a66]">ยังไม่มีงานที่ปิดรอบ</td>
+                          <td colSpan={8} className="p-6 text-center text-[#555a66]">
+                            {tableSearchQuery ? 'ไม่พบงานที่ตรงกับคำค้นหา' : 'ยังไม่มีงานที่ปิดรอบ'}
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -1671,7 +1806,6 @@ export default function App() {
               </div>
             )}
 
-            {/* ตารางที่ 3: สถิติ */}
             {tableSubView === 'analytics' && (
               <div className="space-y-4">
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
@@ -2000,7 +2134,7 @@ export default function App() {
             }`}
           >
             <TableIcon size={20} />
-            <span>ตาราง & กราฟ</span>
+            <span>ตาราง</span>
           </button>
           <button 
             onClick={() => setActiveTab('billing')} 
