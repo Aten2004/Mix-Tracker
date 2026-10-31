@@ -29,7 +29,9 @@ import {
   HelpCircle,
   Calculator,
   Copy,
-  Check
+  Check,
+  Archive,
+  ArrowUpRight
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -63,7 +65,7 @@ interface CustomDialog {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'queue' | 'calendar' | 'table' | 'billing'>('queue');
-  const [tableSubView, setTableSubView] = useState<'table' | 'analytics'>('table');
+  const [tableSubView, setTableSubView] = useState<'current' | 'billed' | 'analytics'>('current');
   const [loading, setLoading] = useState(true);
 
   // Workspaces
@@ -79,6 +81,9 @@ export default function App() {
   const [isNotesCollapsed, setIsNotesCollapsed] = useState(false);
   const [isTargetCollapsed, setIsTargetCollapsed] = useState(false);
   const [showCalcGuide, setShowCalcGuide] = useState(false);
+
+  // ตัวเลือกสถานะตอนบันทึกงานใหม่ (รอบปัจจุบัน vs ประวัติเก่า)
+  const [addJobTargetStatus, setAddJobTargetStatus] = useState<'pending' | 'billed'>('pending');
 
   // เป้าหมายรายได้สุทธิ (Net Target)
   const [monthlyTarget, setMonthlyTarget] = useState<number>(14700);
@@ -110,14 +115,11 @@ export default function App() {
   // Custom Unified Dialog State
   const [dialogState, setDialogState] = useState<CustomDialog | null>(null);
   const [promptInputValue, setPromptInputValue] = useState('');
-
-  // สถานะบอกว่าเพิ่งคัดลอกงาน id ไหนไป (เพื่อแสดง feedback ทันทีโดยไม่ต้องเปิด popup)
   const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
 
   const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
   const thaiDays = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
 
-  // โหลดค่า LocalStorage และวันที่ Client-side ปลอดภัยต่อ Prerender
   useEffect(() => {
     const savedTarget = localStorage.getItem('mix_monthly_target');
     if (savedTarget) {
@@ -133,6 +135,9 @@ export default function App() {
 
     const savedTargetCol = localStorage.getItem('mix_target_collapsed');
     if (savedTargetCol) setIsTargetCollapsed(savedTargetCol === 'true');
+
+    const savedWs = localStorage.getItem('mix_selected_ws');
+    if (savedWs) setSelectedWs(savedWs);
 
     const now = new Date();
     const y = now.getFullYear();
@@ -175,7 +180,7 @@ export default function App() {
     setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
   };
 
-  // ดึงข้อมูลจริงจาก Supabase
+  // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -183,7 +188,10 @@ export default function App() {
       if (wsData && wsData.length > 0) {
         const names = wsData.map(w => w.name);
         setWorkspaces(names);
-        if (!names.includes(selectedWs)) {
+        const savedWs = localStorage.getItem('mix_selected_ws');
+        if (savedWs && names.includes(savedWs)) {
+          setSelectedWs(savedWs);
+        } else if (!names.includes(selectedWs)) {
           setSelectedWs(names[0]);
         }
       }
@@ -271,7 +279,6 @@ export default function App() {
     });
   };
 
-  // จัดการ Workspace ผ่าน Custom Dialog
   const handleAddWorkspace = () => {
     setDialogState({
       type: 'prompt',
@@ -285,6 +292,7 @@ export default function App() {
           await supabase.from('workspaces').insert([{ name: trimmed }]);
           setWorkspaces(prev => [...prev, trimmed]);
           setSelectedWs(trimmed);
+          localStorage.setItem('mix_selected_ws', trimmed);
         }
       }
     });
@@ -307,6 +315,7 @@ export default function App() {
           await supabase.from('billing_cycles').update({ workspace: trimmed }).eq('workspace', selectedWs);
           setWorkspaces(prev => prev.map(w => w === selectedWs ? trimmed : w));
           setSelectedWs(trimmed);
+          localStorage.setItem('mix_selected_ws', trimmed);
           fetchData();
         }
       }
@@ -331,6 +340,7 @@ export default function App() {
         const remaining = workspaces.filter(w => w !== selectedWs);
         setWorkspaces(remaining);
         setSelectedWs(remaining[0]);
+        localStorage.setItem('mix_selected_ws', remaining[0]);
         fetchData();
       }
     });
@@ -386,8 +396,8 @@ export default function App() {
       minutes: finalMinutes,
       drive_url: finalDriveUrl,
       ...dates,
-      is_included_in_billing: true,
-      status: 'pending'
+      is_included_in_billing: addJobTargetStatus === 'pending',
+      status: addJobTargetStatus
     };
 
     const { error } = await supabase.from('jobs').insert([payload]);
@@ -397,7 +407,13 @@ export default function App() {
       setDriveUrlInput('');
       setSheetPaste('');
       fetchData();
-      setDialogState({ title: 'สำเร็จ', desc: `เพิ่มงาน ${finalTitle} เข้าสู่ระบบแล้ว`, type: 'alert' });
+      setDialogState({ 
+        title: 'สำเร็จ', 
+        desc: addJobTargetStatus === 'pending'
+          ? `เพิ่มงาน ${finalTitle} เข้าสู่คิวเรียบร้อย`
+          : `บันทึกงาน ${finalTitle} เป็นประวัติเก่าที่ปิดรอบแล้ว`, 
+        type: 'alert' 
+      });
     } else {
       setDialogState({ title: 'เกิดข้อผิดพลาด', desc: error.message, type: 'alert' });
     }
@@ -449,6 +465,38 @@ export default function App() {
     });
   };
 
+  // ย้ายงานไปสถานะปิดรอบแล้วโดยตรง (Archive)
+  const handleMarkJobAsBilled = (job: JobItem) => {
+    setDialogState({
+      type: 'confirm',
+      title: 'ย้ายไปงานปิดรอบแล้ว',
+      desc: `ต้องการย้ายงาน "${job.title}" ออกจากคิวรอบปัจจุบันเพื่อไปเก็บในตารางประวัติปิดรอบแล้วใช่หรือไม่?`,
+      confirmText: 'ย้ายไปประวัติ',
+      onConfirm: async () => {
+        await supabase.from('jobs').update({ status: 'billed' }).eq('id', job.id);
+        fetchData();
+      }
+    });
+  };
+
+  // ดึงงานจากตารางปิดรอบแล้วกลับเข้ามาในคิว
+  const handleReopenJob = (job: JobItem) => {
+    setDialogState({
+      type: 'confirm',
+      title: 'ดึงกลับมารอบปัจจุบัน',
+      desc: `ต้องการนำงาน "${job.title}" กลับมาในคิวรอบปัจจุบันเพื่อคำนวณเงินใหม่ใช่หรือไม่?`,
+      confirmText: 'ดึงกลับมา',
+      onConfirm: async () => {
+        await supabase.from('jobs').update({ 
+          status: 'pending', 
+          billing_cycle_id: null,
+          is_included_in_billing: true 
+        }).eq('id', job.id);
+        fetchData();
+      }
+    });
+  };
+
   const handleAddNote = async () => {
     if (!noteTitle.trim()) return;
     const newNote = {
@@ -480,7 +528,7 @@ export default function App() {
     });
   };
 
-  // คัดลอกรหัสงานรายเรื่อง (ชื่อ_ตอน_นาที) แบบกดแล้วก็อปได้ทันที ไม่ต้องมีป๊อปอัปยืนยัน
+  // คัดลอกรหัสงานรายเรื่อง (ชื่อ_ตอน_นาที) แบบกดแล้วก็อปทันที
   const handleCopyJob = (job: JobItem) => {
     const code = job.episode ? `${job.title}_${job.episode}_${job.minutes}` : `${job.title}_${job.minutes}`;
     navigator.clipboard.writeText(code);
@@ -490,39 +538,48 @@ export default function App() {
     }, 1500);
   };
 
-  // สรุปยอด
+  // ===================== สรุปและแยกชุดข้อมูล =====================
   const filteredJobs = useMemo(() => jobs.filter(j => j.workspace === selectedWs), [jobs, selectedWs]);
   const filteredNotes = useMemo(() => notes.filter(n => n.workspace === selectedWs), [notes, selectedWs]);
   const filteredCycles = useMemo(() => billingCycles.filter(b => b.workspace === selectedWs), [billingCycles, selectedWs]);
 
+  // 1. งานที่รอคิดเงินทั้งหมด (Pending)
   const pendingJobs = useMemo(() => filteredJobs.filter(j => j.status === 'pending'), [filteredJobs]);
-  const activeBilledJobs = useMemo(() => pendingJobs.filter(j => j.isIncludedInBilling), [pendingJobs]);
 
+  // 2. งานในคิวรอบปัจจุบัน (แสดงงาน Pending ทั้งหมด ไม่โดนกรองเดือนซ่อน รองรับงานข้ามเดือน 100%)
+  const currentCyclePendingJobs = useMemo(() => pendingJobs, [pendingJobs]);
+
+  // 3. งานที่ปิดรอบไปแล้วทั้งหมด (Billed / Historical Jobs)
+  const billedJobs = useMemo(() => filteredJobs.filter(j => j.status === 'billed'), [filteredJobs]);
+
+  // 4. งานในรอบที่เลือกนับยอดเงิน (Active Billed)
+  const activeBilledJobs = useMemo(() => currentCyclePendingJobs.filter(j => j.isIncludedInBilling), [currentCyclePendingJobs]);
+
+  // คำนวณยอดเงินของงานทั้งหมดที่อยู่ในคิว
   const currentTotalMins = useMemo(() => activeBilledJobs.reduce((acc, cur) => acc + (Number(cur.minutes) || 0), 0), [activeBilledJobs]);
   const currentGross = currentTotalMins * 15;
   const currentTax = currentGross * 0.03;
   const currentNet = currentGross - currentTax;
 
-  // คัดลอกข้อมูลหนังทั้งหมดในหน้าตาราง (ตัดบรรทัดหักภาษีออก เหลือเฉพาะยอดเต็มและยอดสุทธิ)
+  // คัดลอกสรุปทั้งหมดของรอบปัจจุบัน
   const handleCopyAllJobs = () => {
-    if (filteredJobs.length === 0) {
+    if (currentCyclePendingJobs.length === 0) {
       setDialogState({
         type: 'alert',
         title: 'ไม่มีข้อมูล',
-        desc: 'ไม่มีรายการงานในตารางให้คัดลอก'
+        desc: 'ไม่มีรายการงานในรอบนี้ให้คัดลอก'
       });
       return;
     }
-    const lines = filteredJobs.map(j => j.episode ? `${j.title}_${j.episode}_${j.minutes}` : `${j.title}_${j.minutes}`);
-    const minValues = filteredJobs.map(j => Number(j.minutes) || 0);
+    const lines = currentCyclePendingJobs.map(j => j.episode ? `${j.title}_${j.episode}_${j.minutes}` : `${j.title}_${j.minutes}`);
+    const minValues = currentCyclePendingJobs.map(j => Number(j.minutes) || 0);
     const sumTotal = minValues.reduce((a, b) => a + b, 0);
     const sumString = minValues.length > 0 ? `${minValues.join(' + ')} = ${sumTotal} นาที` : '0 นาที';
     
-    // คำนวณยอดเต็มและยอดสุทธิ (หัก 3%)
-    const totalGross = sumTotal * 15;
-    const totalNet = totalGross * 0.97;
+    const totalGrossVal = sumTotal * 15;
+    const totalNetVal = totalGrossVal * 0.97;
 
-    const output = `${lines.join('\n')}\n\nผลรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGross.toLocaleString()}\nยอดสุทธิ: ฿${totalNet.toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท`;
+    const output = `${lines.join('\n')}\n\nผลรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGrossVal.toLocaleString()}\nยอดสุทธิ: ฿${totalNetVal.toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท`;
     
     navigator.clipboard.writeText(output);
     setDialogState({
@@ -540,11 +597,11 @@ export default function App() {
   const targetPercent = monthlyTarget > 0 ? Math.min(100, Math.round((currentNet / monthlyTarget) * 100)) : 100;
 
   const avgMovieLength = useMemo(() => {
-    const validJobs = filteredJobs.filter(j => j.minutes > 0);
+    const validJobs = currentCyclePendingJobs.filter(j => j.minutes > 0);
     if (validJobs.length === 0) return 80;
     const sum = validJobs.reduce((acc, c) => acc + c.minutes, 0);
     return Math.round(sum / validJobs.length) || 80;
-  }, [filteredJobs]);
+  }, [currentCyclePendingJobs]);
 
   const remainingMoviesEst = Math.ceil(remainingMinsNeeded / avgMovieLength);
 
@@ -606,7 +663,7 @@ export default function App() {
 
   const handleCloseBillingCycle = () => {
     if (activeBilledJobs.length === 0) {
-      setDialogState({ title: 'ไม่สามารถปิดยอดได้', desc: 'ไม่มีรายการงานที่เลือกคิดเงิน', type: 'alert' });
+      setDialogState({ title: 'ไม่สามารถปิดยอดได้', desc: 'ไม่มีรายการงานที่เลือกคิดเงินในรอบนี้', type: 'alert' });
       return;
     }
     setDialogState({
@@ -682,7 +739,10 @@ export default function App() {
             <div className="flex items-center gap-2 min-w-0">
               <select 
                 value={selectedWs} 
-                onChange={(e) => setSelectedWs(e.target.value)}
+                onChange={(e) => {
+                  setSelectedWs(e.target.value);
+                  localStorage.setItem('mix_selected_ws', e.target.value);
+                }}
                 className="bg-transparent text-white font-black text-lg sm:text-xl focus:outline-none cursor-pointer max-w-[200px] xs:max-w-[260px] sm:max-w-md truncate"
               >
                 {workspaces.map(ws => <option key={ws} value={ws} className="bg-[#12141a] text-white">{ws}</option>)}
@@ -772,7 +832,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* พับเก็บ: Slim Bar */}
           {isTargetCollapsed && (
             <div className="pt-2 border-t border-[#1c1f28] flex justify-between items-center text-xs gap-2">
               <div className="flex items-center gap-1.5 shrink-0">
@@ -789,7 +848,6 @@ export default function App() {
             </div>
           )}
 
-          {/* กางออก: รายละเอียดเป้าหมาย */}
           {!isTargetCollapsed && (
             <>
               {isEditingTarget ? (
@@ -821,7 +879,6 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Progress Bar */}
                   <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden p-0.5 border border-[#262933]">
                     <div 
                       className="bg-gradient-to-r from-red-700 to-red-500 h-full rounded-full transition-all duration-500"
@@ -829,7 +886,6 @@ export default function App() {
                     />
                   </div>
 
-                  {/* กล่องสรุปนาทีที่เหลือ */}
                   <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2 text-xs mt-2">
                     <div>
                       <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
@@ -853,7 +909,6 @@ export default function App() {
             </>
           )}
 
-          {/* สูตรคำนวณ */}
           {showCalcGuide && (
             <div className="pt-3 border-t border-[#262933] space-y-3 bg-[#0a0b0e] p-3 rounded-xl border border-red-900/40 text-xs">
               <div className="flex justify-between items-center text-red-400 font-bold">
@@ -876,16 +931,6 @@ export default function App() {
                   <div className="bg-[#12141a] p-2 rounded-lg font-mono text-[11px] text-red-300 border border-[#262933] my-1">
                     ยอดเงินที่ยังขาด ÷ 14.55
                   </div>
-                </div>
-                <div>
-                  <span className="font-bold text-white block">3. ตัวอย่างการคิดจริง:</span>
-                  <ul className="list-disc list-inside text-[11px] space-y-1 text-[#8e94a4] mt-1">
-                    <li>เป้าหมาย: <strong className="text-white">14,700 บาท</strong></li>
-                    <li>ทำไปแล้ว: 23% (สุทธิ 3,419.25 บาท)</li>
-                    <li>ยอดที่ขาด: 14,700 - 3,419.25 = <strong className="text-red-400">11,280.75 บาท</strong></li>
-                    <li>นาทีที่ต้องทำเพิ่ม: 11,280.75 ÷ 14.55 = <strong className="text-white">775.31 นาที</strong> (ปัดเป็น <strong className="text-red-400">776 นาที</strong>)</li>
-                    <li>คิดเป็นเรื่องเฉลี่ย 78 นาที: 776 ÷ 78 ≈ <strong className="text-white">10 เรื่อง</strong></li>
-                  </ul>
                 </div>
               </div>
             </div>
@@ -920,7 +965,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* พับเก็บ: Quick links */}
           {isNotesCollapsed && (
             <div className="pt-2 border-t border-[#1c1f28]">
               {filteredNotes.length > 0 ? (
@@ -955,7 +999,6 @@ export default function App() {
             </div>
           )}
 
-          {/* กางออก: ฟอร์มโน้ต */}
           {!isNotesCollapsed && (
             <>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-2.5">
@@ -1014,9 +1057,33 @@ export default function App() {
         {/* ======================= TAB 1: คิวงาน (Queue View) ======================= */}
         {activeTab === 'queue' && (
           <div className="space-y-4">
-            {/* กล่องบันทึกงานใหม่ */}
+            
+            {/* กล่องบันทึกงานใหม่ พร้อมสลับสถานะ */}
             <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-5 space-y-3.5">
-              <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่ (Cloud Storage)</h2>
+              <div className="flex justify-between items-center">
+                <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่ (Cloud Storage)</h2>
+                <div className="flex bg-[#0a0b0e] p-0.5 rounded-lg border border-[#262933] text-[11px]">
+                  <button 
+                    type="button"
+                    onClick={() => setAddJobTargetStatus('pending')}
+                    className={`px-2 py-0.5 rounded-md transition font-medium ${
+                      addJobTargetStatus === 'pending' ? 'bg-red-600 text-white' : 'text-[#8e94a4] hover:text-white'
+                    }`}
+                  >
+                    รอบปัจจุบัน
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setAddJobTargetStatus('billed')}
+                    className={`px-2 py-0.5 rounded-md transition font-medium ${
+                      addJobTargetStatus === 'billed' ? 'bg-[#1c1f28] text-amber-400' : 'text-[#8e94a4] hover:text-white'
+                    }`}
+                    title="บันทึกเข้าตารางประวัติเก่าทันที ไม่นับรวมในคิวปัจจุบัน"
+                  >
+                    ประวัติเก่า (ปิดรอบแล้ว)
+                  </button>
+                </div>
+              </div>
               
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -1056,23 +1123,35 @@ export default function App() {
                 onClick={handleAddJob}
                 className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl text-sm transition shadow-lg shadow-red-950/50"
               >
-                บันทึกงานลงระบบ
+                {addJobTargetStatus === 'pending' ? 'บันทึกงานลงรอบปัจจุบัน' : 'บันทึกเก็บเป็นประวัติที่ปิดรอบแล้ว'}
               </button>
             </div>
 
-            {/* รายการคิวงาน */}
+            {/* รายการคิวงาน (แสดงงานทั้งหมดในคิว รองรับงานข้ามเดือน) */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
-                <span className="text-xs font-bold text-[#8e94a4] uppercase">คิวงานปัจจุบัน ({pendingJobs.length})</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#8e94a4] uppercase">
+                    คิวงานปัจจุบัน ({currentCyclePendingJobs.length})
+                  </span>
+                  <span className="text-[10px] bg-red-950/40 text-red-400 border border-red-900/40 px-2 py-0.5 rounded-md font-mono">
+                    รองรับข้ามเดือน
+                  </span>
+                </div>
                 <span className="text-[11px] text-red-400 font-semibold">งานพร้อมคิดเงิน</span>
               </div>
 
-              {pendingJobs.length === 0 ? (
-                <div className="text-center py-12 text-[#555a66] text-xs bg-[#12141a]/50 rounded-2xl border border-dashed border-[#262933]">
-                  {loading ? 'กำลังโหลดข้อมูลจาก Supabase...' : 'ไม่มีงานค้างในคิว'}
+              {currentCyclePendingJobs.length === 0 ? (
+                <div className="text-center py-12 text-[#555a66] text-xs bg-[#12141a]/50 rounded-2xl border border-dashed border-[#262933] space-y-1">
+                  <p>{loading ? 'กำลังโหลดข้อมูลจาก Supabase...' : 'ไม่มีงานค้างในคิว'}</p>
+                  {billedJobs.length > 0 && (
+                    <p className="text-[11px] text-[#8e94a4]">
+                      (มีงานที่ปิดรอบไปแล้ว {billedJobs.length} เรื่อง ดูได้ในแท็บ &quot;ตาราง & กราฟ&quot;)
+                    </p>
+                  )}
                 </div>
               ) : (
-                pendingJobs.map((job) => {
+                currentCyclePendingJobs.map((job) => {
                   const isDW = job.title.toUpperCase().startsWith('DW');
                   const isCopied = copiedJobId === job.id;
                   return (
@@ -1101,7 +1180,7 @@ export default function App() {
                             </span>
                           </div>
 
-                          {/* 2. แถวจำนวนตอน (เช่น 50 ตอน) และ Google Drive อยู่บรรทัดเดียวกันเพื่อประหยัดพื้นที่ */}
+                          {/* 2. แถวจำนวนตอน (เช่น 50 ตอน) และ Google Drive อยู่บรรทัดเดียวกัน */}
                           {(job.episode || job.drive_url) && (
                             <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                               {job.episode && (
@@ -1131,7 +1210,7 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* เมนูด้านขวา (ปุ่ม Copy กดแล้วก๊อปทันที ไม่มี Alert) */}
+                        {/* เมนูด้านขวา */}
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
                           <button 
                             onClick={() => handleCopyJob(job)} 
@@ -1156,6 +1235,13 @@ export default function App() {
                             }`}
                           >
                             {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
+                          </button>
+                          <button 
+                            onClick={() => handleMarkJobAsBilled(job)} 
+                            className="p-1.5 bg-[#1c1f28] hover:bg-amber-950/40 text-[#8e94a4] hover:text-amber-400 rounded-lg border border-[#262933] transition"
+                            title="ย้ายไปตารางประวัติปิดรอบแล้ว"
+                          >
+                            <Archive size={14} />
                           </button>
                           <button onClick={() => handleDeleteJob(job.id, job.title)} className="p-1.5 text-[#555a66] hover:text-red-400 transition" title="ลบงาน">
                             <Trash2 size={15} />
@@ -1324,14 +1410,23 @@ export default function App() {
         {/* ======================= TAB 3: ตาราง & กราฟ ======================= */}
         {activeTab === 'table' && (
           <div className="space-y-4">
-            <div className="flex bg-[#12141a] p-1.5 rounded-2xl border border-[#262933]">
+            
+            <div className="flex bg-[#12141a] p-1.5 rounded-2xl border border-[#262933] gap-1">
               <button 
-                onClick={() => setTableSubView('table')}
+                onClick={() => setTableSubView('current')}
                 className={`flex-1 py-2 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
-                  tableSubView === 'table' ? 'bg-red-600 text-white shadow' : 'text-[#8e94a4] hover:text-white'
+                  tableSubView === 'current' ? 'bg-red-600 text-white shadow' : 'text-[#8e94a4] hover:text-white'
                 }`}
               >
-                <TableIcon size={14} /> ตารางงาน ({filteredJobs.length})
+                <TableIcon size={14} /> งานรอบนี้ ({currentCyclePendingJobs.length})
+              </button>
+              <button 
+                onClick={() => setTableSubView('billed')}
+                className={`flex-1 py-2 text-xs font-bold rounded-xl transition flex items-center justify-center gap-1.5 ${
+                  tableSubView === 'billed' ? 'bg-[#1c1f28] text-amber-400 border border-amber-500/40 shadow' : 'text-[#8e94a4] hover:text-white'
+                }`}
+              >
+                <Archive size={14} /> ปิดรอบแล้ว ({billedJobs.length})
               </button>
               <button 
                 onClick={() => setTableSubView('analytics')}
@@ -1339,29 +1434,29 @@ export default function App() {
                   tableSubView === 'analytics' ? 'bg-red-600 text-white shadow' : 'text-[#8e94a4] hover:text-white'
                 }`}
               >
-                <BarChart3 size={14} /> วิเคราะห์สถิติ
+                <BarChart3 size={14} /> สถิติ
               </button>
             </div>
 
-            {tableSubView === 'table' && (
+            {/* ตารางที่ 1: งานในรอบปัจจุบัน */}
+            {tableSubView === 'current' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
-                
-                {/* ส่วนหัวตาราง + ปุ่มคัดลอกสรุปทั้งหมด */}
                 <div className="flex justify-between items-center gap-2">
-                  <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                    รายการงานทั้งหมด ({filteredJobs.length} เรื่อง)
-                  </h3>
+                  <div>
+                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                      งานในรอบนี้ ({currentCyclePendingJobs.length} เรื่อง)
+                    </h3>
+                  </div>
                   <button 
                     onClick={handleCopyAllJobs}
                     className="text-xs bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold px-3 py-1.5 rounded-xl border border-[#262933] transition flex items-center gap-1.5 shadow-sm"
-                    title="คัดลอก ชื่อ_ตอน_นาที พร้อมผลรวมนาทีทั้งหมด"
+                    title="คัดลอกสรุป ชื่อ_ตอน_นาที พร้อมยอดรวม"
                   >
                     <Copy size={13} className="text-red-400" />
                     <span>คัดลอกสรุปทั้งหมด</span>
                   </button>
                 </div>
 
-                {/* ตารางงานปรับสัดส่วนใหม่ ขยับช่องว่างชื่อเรื่องกับตอนให้กระชับเข้าหากัน */}
                 <div className="overflow-x-auto pb-2 scrollbar-thin">
                   <table className="w-full text-left text-xs border-collapse min-w-[700px]">
                     <thead>
@@ -1371,16 +1466,16 @@ export default function App() {
                         <th className="py-2.5 pl-1 pr-2 text-center w-14">ตอน</th>
                         <th className="py-2.5 px-2 text-center w-16">นาที</th>
                         <th className="py-2.5 px-2 text-center w-12">Drive</th>
-                        <th className="py-2.5 px-2 text-center w-20">เกลา</th>
-                        <th className="py-2.5 px-2 text-center w-20">พากย์</th>
-                        <th className="py-2.5 px-2 text-center w-24 text-white bg-red-950/70 border-x border-red-500/30 font-black">มิกซ์</th>
-                        <th className="py-2.5 px-2 text-center w-20">ซับ</th>
-                        <th className="py-2.5 px-2 text-center w-24 text-amber-400 font-bold">เดดไลน์</th>
-                        <th className="py-2.5 px-3 text-center w-24">จัดการ</th>
+                        <th className="py-2.5 px-2.5 text-center w-20">เกลา</th>
+                        <th className="py-2.5 px-2.5 text-center w-20">พากย์</th>
+                        <th className="py-2.5 px-2.5 text-center w-24 text-white bg-red-950/70 border-x border-red-500/30 font-black">มิกซ์</th>
+                        <th className="py-2.5 px-2.5 text-center w-20">ซับ</th>
+                        <th className="py-2.5 px-2.5 text-center w-24 text-amber-400 font-bold">เดดไลน์</th>
+                        <th className="py-2.5 px-3 text-center w-28">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1c1f28]/60">
-                      {filteredJobs.map((j, idx) => {
+                      {currentCyclePendingJobs.map((j, idx) => {
                         const isDW = j.title.toUpperCase().startsWith('DW');
                         const isCopied = copiedJobId === j.id;
                         const rowBg = isDW 
@@ -1389,7 +1484,6 @@ export default function App() {
 
                         return (
                           <tr key={j.id} className={`${rowBg} transition`}>
-                            {/* 1. รหัส */}
                             <td className="py-2.5 px-2 text-center">
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                                 isDW 
@@ -1399,13 +1493,9 @@ export default function App() {
                                 {isDW ? 'DW' : 'GS'}
                               </span>
                             </td>
-
-                            {/* 2. ชื่อเรื่อง (ขยับชิดตอนมากขึ้น) */}
                             <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-36">
                               {j.title}
                             </td>
-
-                            {/* 3. ตอน (อยู่ชิดชื่อเรื่อง ไม่เว้นช่องว่างเกินไป) */}
                             <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-14">
                               {j.episode ? (
                                 <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md font-mono border border-[#262933]">
@@ -1413,13 +1503,9 @@ export default function App() {
                                 </span>
                               ) : '-'}
                             </td>
-
-                            {/* 4. นาที */}
                             <td className="py-2.5 px-2 text-center text-red-400 font-mono font-bold whitespace-nowrap">
                               {j.minutes}
                             </td>
-
-                            {/* 5. Drive */}
                             <td className="py-2.5 px-2 text-center">
                               {j.drive_url ? (
                                 <a href={j.drive_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-white inline-flex items-center justify-center p-1">
@@ -1427,33 +1513,21 @@ export default function App() {
                                 </a>
                               ) : '-'}
                             </td>
-
-                            {/* 6. เกลา */}
-                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center text-[#8e94a4] font-mono whitespace-nowrap">
                               {formatToDisplayDate(j.date_glao)}
                             </td>
-
-                            {/* 7. พากย์ */}
-                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center text-[#8e94a4] font-mono whitespace-nowrap">
                               {formatToDisplayDate(j.date_pak)}
                             </td>
-
-                            {/* 8. มิกซ์ */}
-                            <td className="py-2.5 px-2 text-center font-bold text-white bg-red-950/50 border-x border-red-500/20 font-mono whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center font-bold text-white bg-red-950/50 border-x border-red-500/20 font-mono whitespace-nowrap">
                               {formatToDisplayDate(j.date_mix)}
                             </td>
-
-                            {/* 9. ซับ */}
-                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center text-[#8e94a4] font-mono whitespace-nowrap">
                               {formatToDisplayDate(j.date_sub || '')}
                             </td>
-
-                            {/* 10. เดดไลน์ */}
-                            <td className="py-2.5 px-2 text-center text-amber-300 font-mono font-bold whitespace-nowrap">
+                            <td className="py-2.5 px-2.5 text-center text-amber-300 font-mono font-bold whitespace-nowrap">
                               {formatToDisplayDate(j.date_deadline)}
                             </td>
-
-                            {/* 11. จัดการ */}
                             <td className="py-2.5 px-3 text-center whitespace-nowrap">
                               <div className="flex items-center justify-center gap-1">
                                 <button 
@@ -1468,6 +1542,9 @@ export default function App() {
                                 <button onClick={() => setEditingJob(j)} className="text-[#8e94a4] hover:text-white p-1" title="แก้ไขงาน">
                                   <Edit3 size={13} />
                                 </button>
+                                <button onClick={() => handleMarkJobAsBilled(j)} className="text-[#8e94a4] hover:text-amber-400 p-1" title="ย้ายไปปิดรอบแล้ว">
+                                  <Archive size={13} />
+                                </button>
                                 <button onClick={() => handleDeleteJob(j.id, j.title)} className="text-[#555a66] hover:text-red-400 p-1" title="ลบงาน">
                                   <Trash2 size={13} />
                                 </button>
@@ -1476,9 +1553,9 @@ export default function App() {
                           </tr>
                         );
                       })}
-                      {filteredJobs.length === 0 && (
+                      {currentCyclePendingJobs.length === 0 && (
                         <tr>
-                          <td colSpan={11} className="p-6 text-center text-[#555a66]">ไม่มีข้อมูล</td>
+                          <td colSpan={11} className="p-6 text-center text-[#555a66]">ไม่มีงานค้างในรอบนี้</td>
                         </tr>
                       )}
                     </tbody>
@@ -1487,6 +1564,114 @@ export default function App() {
               </div>
             )}
 
+            {/* ตารางที่ 2: งานที่ปิดรอบไปแล้ว */}
+            {tableSubView === 'billed' && (
+              <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
+                <div className="flex justify-between items-center gap-2">
+                  <div>
+                    <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Archive size={14} /> งานที่ปิดรอบแล้ว ({billedJobs.length} เรื่อง)
+                    </h3>
+                    <p className="text-[11px] text-[#8e94a4] mt-0.5">
+                      รายการประวัติที่คิดเงินแล้ว ไม่ถูกนำมาคิดรวมในรอบปัจจุบัน
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto pb-2 scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="border-b border-[#262933] text-amber-400 font-bold bg-[#181a22]">
+                        <th className="py-2.5 px-2 text-center w-12">รหัส</th>
+                        <th className="py-2.5 pl-2 pr-1 text-left w-36">ชื่อเรื่อง</th>
+                        <th className="py-2.5 pl-1 pr-2 text-center w-14">ตอน</th>
+                        <th className="py-2.5 px-2 text-center w-16">นาที</th>
+                        <th className="py-2.5 px-2 text-center w-12">Drive</th>
+                        <th className="py-2.5 px-2.5 text-center w-24">วันมิกซ์</th>
+                        <th className="py-2.5 px-2.5 text-center w-24">เดดไลน์</th>
+                        <th className="py-2.5 px-3 text-center w-36">จัดการ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#1c1f28]/60">
+                      {billedJobs.map((j) => {
+                        const isDW = j.title.toUpperCase().startsWith('DW');
+                        const isCopied = copiedJobId === j.id;
+                        return (
+                          <tr key={j.id} className="hover:bg-[#181a22]/60 transition opacity-80 hover:opacity-100">
+                            <td className="py-2.5 px-2 text-center">
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                isDW 
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' 
+                                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                              }`}>
+                                {isDW ? 'DW' : 'GS'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-36">
+                              {j.title}
+                            </td>
+                            <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-14">
+                              {j.episode ? (
+                                <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md font-mono border border-[#262933]">
+                                  {j.episode}
+                                </span>
+                              ) : '-'}
+                            </td>
+                            <td className="py-2.5 px-2 text-center text-amber-400 font-mono font-bold whitespace-nowrap">
+                              {j.minutes}
+                            </td>
+                            <td className="py-2.5 px-2 text-center">
+                              {j.drive_url ? (
+                                <a href={j.drive_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-white inline-flex items-center justify-center p-1">
+                                  <FolderOpen size={13} />
+                                </a>
+                              ) : '-'}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_mix)}
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_deadline)}
+                            </td>
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <button 
+                                  onClick={() => handleCopyJob(j)} 
+                                  className={`p-1 rounded transition ${
+                                    isCopied ? 'text-emerald-400' : 'text-[#8e94a4] hover:text-white'
+                                  }`} 
+                                  title="คัดลอก (ชื่อ_ตอน_นาที)"
+                                >
+                                  {isCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                                </button>
+                                <button 
+                                  onClick={() => handleReopenJob(j)} 
+                                  className="text-[11px] bg-[#1c1f28] hover:bg-[#262a36] text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-lg transition inline-flex items-center gap-1"
+                                  title="นำกลับมาในคิวรอบปัจจุบันเพื่อคำนวณเงินใหม่"
+                                >
+                                  <ArrowUpRight size={12} />
+                                  <span>ดึงกลับมารอบนี้</span>
+                                </button>
+                                <button onClick={() => handleDeleteJob(j.id, j.title)} className="text-[#555a66] hover:text-red-400 p-1" title="ลบงาน">
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {billedJobs.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="p-6 text-center text-[#555a66]">ยังไม่มีงานที่ปิดรอบ</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ตารางที่ 3: สถิติ */}
             {tableSubView === 'analytics' && (
               <div className="space-y-4">
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
@@ -1528,54 +1713,6 @@ export default function App() {
                     <p className="text-xs text-[#555a66]">ไม่มีข้อมูล</p>
                   )}
                 </div>
-
-                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <span className="text-xs font-bold text-white">กระจายงานรายปักษ์</span>
-                  {analyticsData.maxPeriodMins > 0 ? (
-                    <div className="space-y-2.5 pt-1 text-xs">
-                      <div>
-                        <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>ต้นเดือน (1-10):</span>
-                          <span className="text-white font-mono font-bold">{analyticsData.periodEarly} นาที</span>
-                        </div>
-                        <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${(analyticsData.periodEarly / analyticsData.maxPeriodMins) * 100}%` }} 
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>กลางเดือน (11-20):</span>
-                          <span className="text-white font-mono font-bold">{analyticsData.periodMid} นาที</span>
-                        </div>
-                        <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${(analyticsData.periodMid / analyticsData.maxPeriodMins) * 100}%` }} 
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex justify-between text-[#8e94a4] mb-1">
-                          <span>ปลายเดือน (21-31):</span>
-                          <span className="text-white font-mono font-bold">{analyticsData.periodLate} นาที</span>
-                        </div>
-                        <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${(analyticsData.periodLate / analyticsData.maxPeriodMins) * 100}%` }} 
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-[#555a66]">ไม่มีข้อมูล</p>
-                  )}
-                </div>
               </div>
             )}
           </div>
@@ -1590,7 +1727,7 @@ export default function App() {
                   <Lock size={17} className="text-red-500" /> ปิดรอบคำนวณเงิน
                 </h3>
                 <span className="text-xs bg-red-950/50 text-red-400 px-2.5 py-1 rounded-lg border border-red-900/40">
-                  รวม {activeBilledJobs.length} เรื่อง
+                  รวม {activeBilledJobs.length} เรื่องในรอบนี้
                 </span>
               </div>
 
@@ -1608,7 +1745,7 @@ export default function App() {
 
               <div className="bg-[#181a22] border border-[#262933] rounded-xl p-4 space-y-2 text-xs">
                 <div className="flex justify-between text-[#8e94a4]">
-                  <span>รวมนาทีทั้งหมด:</span>
+                  <span>รวมนาทีรอบนี้:</span>
                   <span className="font-mono text-white font-bold">{currentTotalMins} นาที</span>
                 </div>
                 <div className="flex justify-between text-[#8e94a4]">
