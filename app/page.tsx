@@ -27,7 +27,9 @@ import {
   BarChart3,
   TrendingUp,
   HelpCircle,
-  Calculator
+  Calculator,
+  Copy,
+  Check
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -45,6 +47,18 @@ interface NoteItem {
   date: string;
   title: string;
   content: string;
+}
+
+interface CustomDialog {
+  type: 'alert' | 'confirm' | 'prompt';
+  title: string;
+  desc?: string;
+  inputValue?: string;
+  inputPlaceholder?: string;
+  confirmText?: string;
+  cancelText?: string;
+  onConfirm?: () => void;
+  onSubmit?: (val: string) => void;
 }
 
 export default function App() {
@@ -87,14 +101,23 @@ export default function App() {
   // Calendar State
   const [currentMonth, setCurrentMonth] = useState(new Date(2026, 9, 1));
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
+  const [todayStr, setTodayStr] = useState<string>('');
+  const [todayDisplay, setTodayDisplay] = useState<string>('');
 
   // Cutoff Billing Date State
   const [cutoffDate, setCutoffDate] = useState<string>('2026-10-31');
 
-  // Custom Modal
-  const [modalMessage, setModalMessage] = useState<{ title: string; desc: string } | null>(null);
+  // Custom Unified Dialog State
+  const [dialogState, setDialogState] = useState<CustomDialog | null>(null);
+  const [promptInputValue, setPromptInputValue] = useState('');
 
-  // โหลดค่าเป้าหมายและสถานะพับเก็บจาก localStorage
+  // สถานะบอกว่าเพิ่งคัดลอกงาน id ไหนไป (เพื่อแสดง feedback ทันทีโดยไม่ต้องเปิด popup)
+  const [copiedJobId, setCopiedJobId] = useState<string | null>(null);
+
+  const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
+  const thaiDays = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+
+  // โหลดค่า LocalStorage และวันที่ Client-side ปลอดภัยต่อ Prerender
   useEffect(() => {
     const savedTarget = localStorage.getItem('mix_monthly_target');
     if (savedTarget) {
@@ -110,7 +133,21 @@ export default function App() {
 
     const savedTargetCol = localStorage.getItem('mix_target_collapsed');
     if (savedTargetCol) setIsTargetCollapsed(savedTargetCol === 'true');
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const d = now.getDate();
+    const dayName = thaiDays[now.getDay()];
+    setTodayStr(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+    setTodayDisplay(`${dayName}ที่ ${d} ${monthNames[m]} ${y}`);
   }, []);
+
+  useEffect(() => {
+    if (dialogState?.type === 'prompt') {
+      setPromptInputValue(dialogState.inputValue || '');
+    }
+  }, [dialogState]);
 
   const toggleNotesCollapse = () => {
     const nextVal = !isNotesCollapsed;
@@ -131,6 +168,11 @@ export default function App() {
       localStorage.setItem('mix_monthly_target', val.toString());
       setIsEditingTarget(false);
     }
+  };
+
+  const handleGoToCurrentMonth = () => {
+    const now = new Date();
+    setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
   };
 
   // ดึงข้อมูลจริงจาก Supabase
@@ -229,45 +271,69 @@ export default function App() {
     });
   };
 
-  const handleAddWorkspace = async () => {
-    const name = prompt('ชื่อทีม / Workspace ใหม่:');
-    if (name && name.trim() && !workspaces.includes(name.trim())) {
-      const trimmed = name.trim();
-      await supabase.from('workspaces').insert([{ name: trimmed }]);
-      setWorkspaces([...workspaces, trimmed]);
-      setSelectedWs(trimmed);
-    }
+  // จัดการ Workspace ผ่าน Custom Dialog
+  const handleAddWorkspace = () => {
+    setDialogState({
+      type: 'prompt',
+      title: 'เพิ่มทีมใหม่',
+      desc: 'กรุณากรอกชื่อทีม / Workspace:',
+      inputPlaceholder: 'เช่น ทีมซีรีส์เกาหลี',
+      confirmText: 'บันทึก',
+      onSubmit: async (name) => {
+        if (name && name.trim() && !workspaces.includes(name.trim())) {
+          const trimmed = name.trim();
+          await supabase.from('workspaces').insert([{ name: trimmed }]);
+          setWorkspaces(prev => [...prev, trimmed]);
+          setSelectedWs(trimmed);
+        }
+      }
+    });
   };
 
-  const handleRenameWorkspace = async () => {
-    const newName = prompt(`เปลี่ยนชื่อทีม "${selectedWs}" เป็น:`, selectedWs);
-    if (newName && newName.trim() && newName.trim() !== selectedWs) {
-      const trimmed = newName.trim();
-      await supabase.from('workspaces').update({ name: trimmed }).eq('name', selectedWs);
-      await supabase.from('jobs').update({ workspace: trimmed }).eq('workspace', selectedWs);
-      await supabase.from('notes').update({ workspace: trimmed }).eq('workspace', selectedWs);
-      await supabase.from('billing_cycles').update({ workspace: trimmed }).eq('workspace', selectedWs);
-      setWorkspaces(workspaces.map(w => w === selectedWs ? trimmed : w));
-      setSelectedWs(trimmed);
-      fetchData();
-    }
+  const handleRenameWorkspace = () => {
+    setDialogState({
+      type: 'prompt',
+      title: 'เปลี่ยนชื่อทีม',
+      desc: `เปลี่ยนชื่อทีม "${selectedWs}" เป็น:`,
+      inputValue: selectedWs,
+      inputPlaceholder: 'ชื่อทีมใหม่',
+      confirmText: 'เปลี่ยนชื่อ',
+      onSubmit: async (newName) => {
+        if (newName && newName.trim() && newName.trim() !== selectedWs) {
+          const trimmed = newName.trim();
+          await supabase.from('workspaces').update({ name: trimmed }).eq('name', selectedWs);
+          await supabase.from('jobs').update({ workspace: trimmed }).eq('workspace', selectedWs);
+          await supabase.from('notes').update({ workspace: trimmed }).eq('workspace', selectedWs);
+          await supabase.from('billing_cycles').update({ workspace: trimmed }).eq('workspace', selectedWs);
+          setWorkspaces(prev => prev.map(w => w === selectedWs ? trimmed : w));
+          setSelectedWs(trimmed);
+          fetchData();
+        }
+      }
+    });
   };
 
-  const handleDeleteWorkspace = async () => {
+  const handleDeleteWorkspace = () => {
     if (workspaces.length <= 1) {
-      setModalMessage({ title: 'ไม่สามารถลบได้', desc: 'ต้องมี Workspace อย่างน้อย 1 ทีม' });
+      setDialogState({ title: 'ไม่สามารถลบได้', desc: 'ต้องมี Workspace อย่างน้อย 1 ทีม', type: 'alert' });
       return;
     }
-    if (confirm(`ยืนยันการลบทีม "${selectedWs}" พร้อมข้อมูลทั้งหมดหรือไม่?`)) {
-      await supabase.from('workspaces').delete().eq('name', selectedWs);
-      await supabase.from('jobs').delete().eq('workspace', selectedWs);
-      await supabase.from('notes').delete().eq('workspace', selectedWs);
-      await supabase.from('billing_cycles').delete().eq('workspace', selectedWs);
-      const remaining = workspaces.filter(w => w !== selectedWs);
-      setWorkspaces(remaining);
-      setSelectedWs(remaining[0]);
-      fetchData();
-    }
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการลบทีม',
+      desc: `ยืนยันการลบทีม "${selectedWs}" พร้อมข้อมูลทั้งหมดหรือไม่? (ข้อมูลจะไม่สามารถกู้คืนได้)`,
+      confirmText: 'ยืนยันการลบ',
+      onConfirm: async () => {
+        await supabase.from('workspaces').delete().eq('name', selectedWs);
+        await supabase.from('jobs').delete().eq('workspace', selectedWs);
+        await supabase.from('notes').delete().eq('workspace', selectedWs);
+        await supabase.from('billing_cycles').delete().eq('workspace', selectedWs);
+        const remaining = workspaces.filter(w => w !== selectedWs);
+        setWorkspaces(remaining);
+        setSelectedWs(remaining[0]);
+        fetchData();
+      }
+    });
   };
 
   const handleAddJob = async () => {
@@ -308,7 +374,7 @@ export default function App() {
     if (isDateString(finalTitle)) finalTitle = 'งานไม่มีชื่อ';
 
     if (!finalTitle) {
-      setModalMessage({ title: 'ข้อมูลไม่ครบ', desc: 'กรุณากรอกรหัสงานหรือข้อมูลจากชีท' });
+      setDialogState({ title: 'ข้อมูลไม่ครบ', desc: 'กรุณากรอกรหัสงานหรือข้อมูลจากชีท', type: 'alert' });
       return;
     }
 
@@ -331,27 +397,37 @@ export default function App() {
       setDriveUrlInput('');
       setSheetPaste('');
       fetchData();
-      setModalMessage({ title: 'สำเร็จ', desc: `เพิ่มงาน ${finalTitle} เข้าสู่ระบบแล้ว` });
+      setDialogState({ title: 'สำเร็จ', desc: `เพิ่มงาน ${finalTitle} เข้าสู่ระบบแล้ว`, type: 'alert' });
     } else {
-      setModalMessage({ title: 'เกิดข้อผิดพลาด', desc: error.message });
+      setDialogState({ title: 'เกิดข้อผิดพลาด', desc: error.message, type: 'alert' });
     }
   };
 
-  const handleSaveEditJob = async () => {
+  const handleSaveEditJob = () => {
     if (!editingJob) return;
-    const { error } = await supabase.from('jobs').update({
-      title: editingJob.title,
-      episode: editingJob.episode,
-      minutes: editingJob.minutes,
-      drive_url: editingJob.drive_url || '',
-      date_mix: editingJob.date_mix,
-      date_deadline: editingJob.date_deadline
-    }).eq('id', editingJob.id);
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการแก้ไขข้อมูล',
+      desc: `ต้องการบันทึกการแก้ไขของงาน "${editingJob.title}" ใช่หรือไม่?`,
+      confirmText: 'บันทึก',
+      onConfirm: async () => {
+        const { error } = await supabase.from('jobs').update({
+          title: editingJob.title,
+          episode: editingJob.episode,
+          minutes: editingJob.minutes,
+          drive_url: editingJob.drive_url || '',
+          date_mix: editingJob.date_mix,
+          date_deadline: editingJob.date_deadline
+        }).eq('id', editingJob.id);
 
-    if (!error) {
-      setEditingJob(null);
-      fetchData();
-    }
+        if (!error) {
+          setEditingJob(null);
+          fetchData();
+        } else {
+          setDialogState({ title: 'เกิดข้อผิดพลาด', desc: error.message, type: 'alert' });
+        }
+      }
+    });
   };
 
   const toggleJobBilling = async (job: JobItem) => {
@@ -360,9 +436,17 @@ export default function App() {
     await supabase.from('jobs').update({ is_included_in_billing: nextVal }).eq('id', job.id);
   };
 
-  const handleDeleteJob = async (id: string) => {
-    setJobs(jobs.filter(j => j.id !== id));
-    await supabase.from('jobs').delete().eq('id', id);
+  const handleDeleteJob = (id: string, title?: string) => {
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการลบงาน',
+      desc: `คุณแน่ใจหรือไม่ว่าต้องการลบงาน "${title || 'รายการนี้'}" ออกจากระบบ?`,
+      confirmText: 'ลบงาน',
+      onConfirm: async () => {
+        setJobs(prev => prev.filter(j => j.id !== id));
+        await supabase.from('jobs').delete().eq('id', id);
+      }
+    });
   };
 
   const handleAddNote = async () => {
@@ -383,9 +467,27 @@ export default function App() {
     }
   };
 
-  const handleDeleteNote = async (id: string) => {
-    setNotes(notes.filter(n => n.id !== id));
-    await supabase.from('notes').delete().eq('id', id);
+  const handleDeleteNote = (id: string, title?: string) => {
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการลบบันทึก',
+      desc: `คุณแน่ใจหรือไม่ว่าต้องการลบบันทึก "${title || 'รายการนี้'}" ?`,
+      confirmText: 'ลบบันทึก',
+      onConfirm: async () => {
+        setNotes(prev => prev.filter(n => n.id !== id));
+        await supabase.from('notes').delete().eq('id', id);
+      }
+    });
+  };
+
+  // คัดลอกรหัสงานรายเรื่อง (ชื่อ_ตอน_นาที) แบบกดแล้วก็อปได้ทันที ไม่ต้องมีป๊อปอัปยืนยัน
+  const handleCopyJob = (job: JobItem) => {
+    const code = job.episode ? `${job.title}_${job.episode}_${job.minutes}` : `${job.title}_${job.minutes}`;
+    navigator.clipboard.writeText(code);
+    setCopiedJobId(job.id);
+    setTimeout(() => {
+      setCopiedJobId(null);
+    }, 1500);
   };
 
   // สรุปยอด
@@ -401,8 +503,37 @@ export default function App() {
   const currentTax = currentGross * 0.03;
   const currentNet = currentGross - currentTax;
 
-  // ===================== คำนวณเป้าหมาย (Net Target) =====================
-  const netRatePerMin = 15 * 0.97; // 14.55
+  // คัดลอกข้อมูลหนังทั้งหมดในหน้าตาราง (ตัดบรรทัดหักภาษีออก เหลือเฉพาะยอดเต็มและยอดสุทธิ)
+  const handleCopyAllJobs = () => {
+    if (filteredJobs.length === 0) {
+      setDialogState({
+        type: 'alert',
+        title: 'ไม่มีข้อมูล',
+        desc: 'ไม่มีรายการงานในตารางให้คัดลอก'
+      });
+      return;
+    }
+    const lines = filteredJobs.map(j => j.episode ? `${j.title}_${j.episode}_${j.minutes}` : `${j.title}_${j.minutes}`);
+    const minValues = filteredJobs.map(j => Number(j.minutes) || 0);
+    const sumTotal = minValues.reduce((a, b) => a + b, 0);
+    const sumString = minValues.length > 0 ? `${minValues.join(' + ')} = ${sumTotal} นาที` : '0 นาที';
+    
+    // คำนวณยอดเต็มและยอดสุทธิ (หัก 3%)
+    const totalGross = sumTotal * 15;
+    const totalNet = totalGross * 0.97;
+
+    const output = `${lines.join('\n')}\n\nผลรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGross.toLocaleString()}\nยอดสุทธิ: ฿${totalNet.toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท`;
+    
+    navigator.clipboard.writeText(output);
+    setDialogState({
+      type: 'alert',
+      title: 'คัดลอกสรุปรายการทั้งหมดแล้ว',
+      desc: output
+    });
+  };
+
+  // คำนวณเป้าหมาย (Net Target)
+  const netRatePerMin = 15 * 0.97;
   const totalMinsNeeded = Math.ceil(monthlyTarget / netRatePerMin);
   const remainingMinsNeeded = Math.max(0, totalMinsNeeded - currentTotalMins);
   const remainingMoneyNeeded = Math.max(0, monthlyTarget - currentNet);
@@ -417,7 +548,7 @@ export default function App() {
 
   const remainingMoviesEst = Math.ceil(remainingMinsNeeded / avgMovieLength);
 
-  // ===================== สถิติ (Analytics) =====================
+  // สถิติ (Analytics)
   const analyticsData = useMemo(() => {
     let gsMins = 0;
     let gsCount = 0;
@@ -473,77 +604,86 @@ export default function App() {
     };
   }, [filteredJobs]);
 
-  const handleCloseBillingCycle = async () => {
+  const handleCloseBillingCycle = () => {
     if (activeBilledJobs.length === 0) {
-      setModalMessage({ title: 'ไม่สามารถปิดยอดได้', desc: 'ไม่มีรายการงานที่เลือกคิดเงิน' });
+      setDialogState({ title: 'ไม่สามารถปิดยอดได้', desc: 'ไม่มีรายการงานที่เลือกคิดเงิน', type: 'alert' });
       return;
     }
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการปิดรอบคำนวณเงิน',
+      desc: `ยืนยันการปิดรอบคำนวณเงิน ${activeBilledJobs.length} เรื่อง รวม ${currentTotalMins} นาที\nยอดสุทธิ ฿${currentNet.toLocaleString()} หรือไม่?`,
+      confirmText: 'ปิดรอบทันที',
+      onConfirm: async () => {
+        const cycleId = Date.now().toString();
+        const cycleTitle = `รอบตัดยอด ${formatToDisplayDate(cutoffDate)}`;
+        const newCycle = {
+          id: cycleId,
+          workspace: selectedWs,
+          title: cycleTitle,
+          cutoff_date: cutoffDate,
+          total_minutes: currentTotalMins,
+          gross_income: currentGross,
+          tax_amount: currentTax,
+          net_income: currentNet,
+          job_count: activeBilledJobs.length,
+          jobIds: activeBilledJobs.map(j => j.id)
+        };
 
-    const cycleId = Date.now().toString();
-    const cycleTitle = `รอบตัดยอด ${formatToDisplayDate(cutoffDate)}`;
-    const newCycle = {
-      id: cycleId,
-      workspace: selectedWs,
-      title: cycleTitle,
-      cutoff_date: cutoffDate,
-      total_minutes: currentTotalMins,
-      gross_income: currentGross,
-      tax_amount: currentTax,
-      net_income: currentNet,
-      job_count: activeBilledJobs.length,
-      jobIds: activeBilledJobs.map(j => j.id)
-    };
+        await supabase.from('billing_cycles').insert([newCycle]);
+        
+        const targetIds = activeBilledJobs.map(j => j.id);
+        await supabase.from('jobs').update({
+          status: 'billed',
+          billing_cycle_id: cycleId
+        }).in('id', targetIds);
 
-    await supabase.from('billing_cycles').insert([newCycle]);
-    
-    const targetIds = activeBilledJobs.map(j => j.id);
-    await supabase.from('jobs').update({
-      status: 'billed',
-      billing_cycle_id: cycleId
-    }).in('id', targetIds);
-
-    fetchData();
-    setModalMessage({
-      title: 'ปิดรอบสำเร็จ',
-      desc: `บันทึกรอบ "${cycleTitle}" รวม ${currentTotalMins} นาที ยอดสุทธิ ฿${currentNet.toLocaleString()}`
+        fetchData();
+        setDialogState({
+          type: 'alert',
+          title: 'ปิดรอบสำเร็จ',
+          desc: `บันทึกรอบ "${cycleTitle}" รวม ${currentTotalMins} นาที ยอดสุทธิ ฿${currentNet.toLocaleString()}`
+        });
+      }
     });
   };
 
-  const handleRollbackCycle = async (cycle: BillingCycle) => {
-    if (confirm(`ต้องการยกเลิกรอบ "${cycle.title}" เพื่อนำงานทั้ง ${cycle.jobCount} เรื่องกลับมาคำนวณใหม่หรือไม่?`)) {
-      await supabase.from('jobs').update({
-        status: 'pending',
-        billing_cycle_id: null
-      }).in('id', cycle.jobIds);
+  const handleRollbackCycle = (cycle: BillingCycle) => {
+    setDialogState({
+      type: 'confirm',
+      title: 'ยืนยันการยกเลิกรอบ',
+      desc: `ต้องการยกเลิกรอบ "${cycle.title}" เพื่อนำงานทั้ง ${cycle.jobCount} เรื่องกลับมาคำนวณใหม่หรือไม่?`,
+      confirmText: 'ยกเลิกรอบนี้',
+      onConfirm: async () => {
+        await supabase.from('jobs').update({
+          status: 'pending',
+          billing_cycle_id: null
+        }).in('id', cycle.jobIds);
 
-      await supabase.from('billing_cycles').delete().eq('id', cycle.id);
-      fetchData();
-      setModalMessage({ title: 'สำเร็จ', desc: 'ยกเลิกรอบคิดเงินเรียบร้อยแล้ว' });
-    }
+        await supabase.from('billing_cycles').delete().eq('id', cycle.id);
+        fetchData();
+        setDialogState({ title: 'สำเร็จ', desc: 'ยกเลิกรอบคิดเงินเรียบร้อยแล้ว', type: 'alert' });
+      }
+    });
   };
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
   const firstDayIndex = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthNames = ["มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"];
 
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-[#f0f2f5] pb-28 font-sans select-none">
       
-      {/* Top Bar */}
+      {/* 1. Top Bar */}
       <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-3 sm:px-4 py-2.5 sm:py-3.5">
         <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <span className="text-[10px] sm:text-[11px] tracking-widest uppercase text-red-500 font-extrabold whitespace-nowrap">MIX TRACKER</span>
-              <span className="text-[8px] sm:text-[9px] bg-red-950/60 text-red-400 border border-red-900/40 px-1.5 py-0.2 rounded font-mono whitespace-nowrap">SUPABASE LIVE</span>
-            </div>
-            <div className="flex items-center gap-2 mt-0.5 min-w-0">
+            <div className="flex items-center gap-2 min-w-0">
               <select 
                 value={selectedWs} 
                 onChange={(e) => setSelectedWs(e.target.value)}
-                className="bg-transparent text-white font-black text-base sm:text-lg focus:outline-none cursor-pointer max-w-[140px] xs:max-w-[180px] sm:max-w-xs truncate"
+                className="bg-transparent text-white font-black text-lg sm:text-xl focus:outline-none cursor-pointer max-w-[200px] xs:max-w-[260px] sm:max-w-md truncate"
               >
                 {workspaces.map(ws => <option key={ws} value={ws} className="bg-[#12141a] text-white">{ws}</option>)}
               </select>
@@ -570,7 +710,7 @@ export default function App() {
 
       <div className="max-w-xl md:max-w-2xl mx-auto px-3 sm:px-4 pt-4 sm:pt-5 space-y-3.5 sm:space-y-4">
 
-        {/* 1. ยอดรวมนาที & รายได้สุทธิ (ย้ายมาอยู่อันดับ 1 บนสุด) */}
+        {/* 1. ยอดรวมนาที & รายได้สุทธิ */}
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
           <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 shadow-sm">
             <span className="text-xs text-[#8e94a4] flex items-center gap-1.5 font-medium">
@@ -592,7 +732,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 2. ช่องเป้าหมายเดือนนี้ (ตามมาเป็นอันดับ 2) */}
+        {/* 2. ช่องเป้าหมายเดือนนี้ */}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex justify-between items-center gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -752,7 +892,7 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. ช่องโน้ต & ลิงก์เดดไลน์ (ตามมาเป็นอันดับ 3) */}
+        {/* 3. ช่องโน้ต & ลิงก์เดดไลน์ */}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <button 
@@ -860,7 +1000,7 @@ export default function App() {
                           {renderTextWithLinks(n.content)}
                         </div>
                       </div>
-                      <button onClick={() => handleDeleteNote(n.id)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1">
+                      <button onClick={() => handleDeleteNote(n.id, n.title)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1" title="ลบบันทึก">
                         <Trash2 size={13} />
                       </button>
                     </div>
@@ -920,7 +1060,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* รายการคิวงาน - Movie Card สไตล์ Discord Mini-Table ในโทนสีดาร์กเดิม */}
+            {/* รายการคิวงาน */}
             <div className="space-y-3">
               <div className="flex justify-between items-center px-1">
                 <span className="text-xs font-bold text-[#8e94a4] uppercase">คิวงานปัจจุบัน ({pendingJobs.length})</span>
@@ -934,24 +1074,23 @@ export default function App() {
               ) : (
                 pendingJobs.map((job) => {
                   const isDW = job.title.toUpperCase().startsWith('DW');
+                  const isCopied = copiedJobId === job.id;
                   return (
                     <div 
                       key={job.id} 
-                      className={`bg-[#12141a] rounded-2xl p-3.5 sm:p-4 transition border ${
+                      className={`rounded-2xl p-3.5 sm:p-4 transition border shadow-sm ${
                         isDW 
-                          ? 'border-amber-500/25 hover:border-amber-500/40' 
-                          : 'border-cyan-500/25 hover:border-cyan-500/40'
+                          ? 'bg-gradient-to-b from-[#1b1510] to-[#14110e] border-amber-500/35 hover:border-amber-500/60' 
+                          : 'bg-gradient-to-b from-[#0e1620] to-[#0c1219] border-cyan-500/35 hover:border-cyan-500/60'
                       } ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
-                      {/* ส่วนหัวการ์ด: รหัส, ตอน, เวลา, ลิงก์ Google Drive และปุ่มจัดการ */}
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
-                            {/* แท็ก GS / DW สีอ่อนซอฟต์โทน แยกง่ายสบายตา */}
                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
                               isDW 
-                                ? 'bg-amber-400/10 text-amber-300 border-amber-400/30' 
-                                : 'bg-cyan-400/10 text-cyan-300 border-cyan-400/30'
+                                ? 'bg-amber-400/15 text-amber-300 border-amber-400/40' 
+                                : 'bg-cyan-400/15 text-cyan-300 border-cyan-400/40'
                             }`}>
                               {isDW ? 'DW' : 'GS'}
                             </span>
@@ -985,8 +1124,19 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* เมนูด้านขวา */}
+                        {/* เมนูด้านขวา (ปุ่ม Copy กดแล้วก๊อปทันที ไม่มี Alert) */}
                         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                          <button 
+                            onClick={() => handleCopyJob(job)} 
+                            className={`p-1.5 rounded-lg border transition ${
+                              isCopied 
+                                ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-400' 
+                                : 'bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border-[#262933]'
+                            }`}
+                            title="คัดลอก (ชื่อ_ตอน_นาที)"
+                          >
+                            {isCopied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                          </button>
                           <button onClick={() => setEditingJob(job)} className="p-1.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white rounded-lg border border-[#262933] transition" title="แก้ไขงาน">
                             <Edit3 size={14} />
                           </button>
@@ -1000,14 +1150,14 @@ export default function App() {
                           >
                             {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
                           </button>
-                          <button onClick={() => handleDeleteJob(job.id)} className="p-1.5 text-[#555a66] hover:text-red-400 transition" title="ลบงาน">
+                          <button onClick={() => handleDeleteJob(job.id, job.title)} className="p-1.5 text-[#555a66] hover:text-red-400 transition" title="ลบงาน">
                             <Trash2 size={15} />
                           </button>
                         </div>
                       </div>
 
-                      {/* ตารางแสดง 5 วันที่ขั้นตอนทำงานแบบ Discord Mini-Table ในโทนดาร์กเดิม */}
-                      <div className="mt-3 pt-2.5 border-t border-[#1c1f28]">
+                      {/* Mini-table 5 วันที่ขั้นตอนทำงาน */}
+                      <div className="mt-3 pt-2.5 border-t border-[#262933]">
                         <div className="grid grid-cols-5 text-center text-[10px] uppercase font-bold text-[#6b7280] pb-1">
                           <div>เกลา</div>
                           <div>พากย์</div>
@@ -1015,7 +1165,7 @@ export default function App() {
                           <div>ซับ</div>
                           <div className="text-amber-400 font-extrabold">เดดไลน์</div>
                         </div>
-                        <div className="grid grid-cols-5 text-center text-xs font-mono bg-[#0a0b0e] rounded-xl py-1.5 border border-[#262933]">
+                        <div className="grid grid-cols-5 text-center text-xs font-mono bg-[#0a0b0e]/90 rounded-xl py-1.5 border border-[#262933]">
                           <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_glao)}</div>
                           <div className="text-[#8e94a4]">{formatToDisplayDate(job.date_pak)}</div>
                           <div className="text-red-200 font-bold bg-red-950/70 border border-red-500/60 rounded-lg mx-0.5 py-0.5">
@@ -1037,12 +1187,27 @@ export default function App() {
         {/* ======================= TAB 2: ปฏิทิน (Calendar View) ======================= */}
         {activeTab === 'calendar' && (
           <div className="bg-[#12141a] border border-[#262933] rounded-3xl p-4 md:p-5 space-y-4">
-            <div className="flex justify-between items-center">
+            
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
               <div>
-                <h3 className="text-lg font-black text-white">{monthNames[month]} {year}</h3>
-                <p className="text-xs text-red-400 mt-0.5">ตารางงานมิกซ์</p>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-black text-white">{monthNames[month]} {year}</h3>
+                  <button 
+                    onClick={handleGoToCurrentMonth}
+                    className="text-[10px] bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] px-2 py-0.5 rounded-md font-bold transition"
+                  >
+                    กลับมาเดือนนี้
+                  </button>
+                </div>
+                {todayDisplay && (
+                  <p className="text-xs text-red-400 mt-0.5 flex items-center gap-1.5 font-medium">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>วันนี้: <strong className="text-white font-bold">{todayDisplay}</strong></span>
+                  </p>
+                )}
               </div>
-              <div className="flex gap-1.5">
+
+              <div className="flex gap-1.5 self-end sm:self-auto">
                 <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-2 bg-[#1c1f28] hover:bg-[#262a36] text-white rounded-xl">
                   <ChevronLeft size={18} />
                 </button>
@@ -1078,25 +1243,35 @@ export default function App() {
                 const isMixDay = mixJobsToday.length > 0;
                 const isDeadlineDay = deadlineJobsToday.length > 0;
                 const isSelected = selectedCalDate === dStr;
+                const isToday = todayStr ? dStr === todayStr : false;
 
                 return (
                   <div key={dayNum} onClick={() => setSelectedCalDate(dStr)} className="h-12 flex flex-col items-center justify-center relative cursor-pointer">
                     {isInRange && (
                       <div className="absolute inset-x-0 h-7 bg-red-950/40 border-y border-red-900/30 -z-0" />
                     )}
-                    <div className={`z-10 w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition ${
-                      isMixDay ? 'bg-red-600 text-white font-black shadow-lg shadow-red-600/60 ring-2 ring-red-400 scale-105' : 
-                      isDeadlineDay ? 'border-2 border-amber-400 text-amber-300 font-bold bg-[#181a22]' : 
-                      isSelected ? 'border-2 border-white text-white' : 
-                      isInRange ? 'text-red-200 font-bold' : 'text-[#8e94a4] hover:text-white'
-                    }`}>
-                      {dayNum}
+
+                    <div className="relative flex items-center justify-center">
+                      {isToday && (
+                        <span className="absolute -inset-1 rounded-full border-2 border-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] pointer-events-none" />
+                      )}
+                      <div className={`z-10 w-8 h-8 flex items-center justify-center rounded-full text-xs font-bold transition ${
+                        isMixDay ? 'bg-red-600 text-white font-black shadow-lg shadow-red-600/60 ring-2 ring-red-400 scale-105' : 
+                        isDeadlineDay ? 'border-2 border-amber-400 text-amber-300 font-bold bg-[#181a22]' : 
+                        isSelected ? 'border-2 border-white text-white' : 
+                        isInRange ? 'text-red-200 font-bold' : 'text-[#8e94a4] hover:text-white'
+                      }`}>
+                        {dayNum}
+                      </div>
                     </div>
-                    {mixJobsToday.length > 0 && (
+
+                    {mixJobsToday.length > 0 ? (
                       <span className="text-[9px] text-red-400 font-black leading-none mt-0.5 truncate max-w-[48px]">
                         {mixJobsToday[0].title}
                       </span>
-                    )}
+                    ) : isToday ? (
+                      <span className="w-1 h-1 rounded-full bg-emerald-400 mt-1" />
+                    ) : null}
                   </div>
                 );
               })}
@@ -1163,57 +1338,130 @@ export default function App() {
 
             {tableSubView === 'table' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
-                <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">รายการงานทั้งหมด ({filteredJobs.length} เรื่อง)</h3>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse min-w-[540px]">
+                
+                {/* ส่วนหัวตาราง + ปุ่มคัดลอกสรุปทั้งหมด */}
+                <div className="flex justify-between items-center gap-2">
+                  <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                    รายการงานทั้งหมด ({filteredJobs.length} เรื่อง)
+                  </h3>
+                  <button 
+                    onClick={handleCopyAllJobs}
+                    className="text-xs bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold px-3 py-1.5 rounded-xl border border-[#262933] transition flex items-center gap-1.5 shadow-sm"
+                    title="คัดลอก ชื่อ_ตอน_นาที พร้อมผลรวมนาทีทั้งหมด"
+                  >
+                    <Copy size={13} className="text-red-400" />
+                    <span>คัดลอกสรุปทั้งหมด</span>
+                  </button>
+                </div>
+
+                {/* ตารางงานปรับสัดส่วนใหม่ ขยับช่องว่างชื่อเรื่องกับตอนให้กระชับเข้าหากัน */}
+                <div className="overflow-x-auto pb-2 scrollbar-thin">
+                  <table className="w-full text-left text-xs border-collapse min-w-[700px]">
                     <thead>
                       <tr className="border-b border-[#262933] text-red-400 font-bold bg-[#181a22]">
-                        <th className="p-2.5">รหัส</th>
-                        <th className="p-2.5">ชื่อเรื่อง</th>
-                        <th className="p-2.5">นาที</th>
-                        <th className="p-2.5">Drive</th>
-                        <th className="p-2.5">เกลา</th>
-                        <th className="p-2.5">พากย์</th>
-                        <th className="p-2.5 text-white bg-red-950/60 font-black">มิกซ์</th>
-                        <th className="p-2.5">ซับ</th>
-                        <th className="p-2.5 text-amber-400">เดดไลน์</th>
-                        <th className="p-2.5 text-center">จัดการ</th>
+                        <th className="py-2.5 px-2 text-center w-12">รหัส</th>
+                        <th className="py-2.5 pl-2 pr-1 text-left w-36">ชื่อเรื่อง</th>
+                        <th className="py-2.5 pl-1 pr-2 text-center w-14">ตอน</th>
+                        <th className="py-2.5 px-2 text-center w-16">นาที</th>
+                        <th className="py-2.5 px-2 text-center w-12">Drive</th>
+                        <th className="py-2.5 px-2 text-center w-20">เกลา</th>
+                        <th className="py-2.5 px-2 text-center w-20">พากย์</th>
+                        <th className="py-2.5 px-2 text-center w-24 text-white bg-red-950/70 border-x border-red-500/30 font-black">มิกซ์</th>
+                        <th className="py-2.5 px-2 text-center w-20">ซับ</th>
+                        <th className="py-2.5 px-2 text-center w-24 text-amber-400 font-bold">เดดไลน์</th>
+                        <th className="py-2.5 px-3 text-center w-24">จัดการ</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#1c1f28]">
-                      {filteredJobs.map((j) => {
+                    <tbody className="divide-y divide-[#1c1f28]/60">
+                      {filteredJobs.map((j, idx) => {
                         const isDW = j.title.toUpperCase().startsWith('DW');
+                        const isCopied = copiedJobId === j.id;
+                        const rowBg = isDW 
+                          ? (idx % 2 === 0 ? 'bg-amber-950/15 hover:bg-amber-900/25' : 'bg-amber-950/25 hover:bg-amber-900/35')
+                          : (idx % 2 === 0 ? 'bg-cyan-950/10 hover:bg-cyan-900/20' : 'bg-cyan-950/20 hover:bg-cyan-900/30');
+
                         return (
-                          <tr key={j.id} className="hover:bg-[#181a22]/60">
-                            <td className="p-2.5">
+                          <tr key={j.id} className={`${rowBg} transition`}>
+                            {/* 1. รหัส */}
+                            <td className="py-2.5 px-2 text-center">
                               <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
                                 isDW 
-                                  ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' 
-                                  : 'bg-cyan-500/10 text-cyan-300 border-cyan-500/20'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' 
+                                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
                               }`}>
                                 {isDW ? 'DW' : 'GS'}
                               </span>
                             </td>
-                            <td className="p-2.5 font-bold text-white">{j.title} {j.episode ? `(${j.episode})` : ''}</td>
-                            <td className="p-2.5 text-red-400 font-mono font-bold">{j.minutes}</td>
-                            <td className="p-2.5">
+
+                            {/* 2. ชื่อเรื่อง (ขยับชิดตอนมากขึ้น) */}
+                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-36">
+                              {j.title}
+                            </td>
+
+                            {/* 3. ตอน (อยู่ชิดชื่อเรื่อง ไม่เว้นช่องว่างเกินไป) */}
+                            <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-14">
+                              {j.episode ? (
+                                <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md font-mono border border-[#262933]">
+                                  {j.episode}
+                                </span>
+                              ) : '-'}
+                            </td>
+
+                            {/* 4. นาที */}
+                            <td className="py-2.5 px-2 text-center text-red-400 font-mono font-bold whitespace-nowrap">
+                              {j.minutes}
+                            </td>
+
+                            {/* 5. Drive */}
+                            <td className="py-2.5 px-2 text-center">
                               {j.drive_url ? (
-                                <a href={j.drive_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-white inline-flex items-center gap-1">
+                                <a href={j.drive_url} target="_blank" rel="noreferrer" className="text-red-400 hover:text-white inline-flex items-center justify-center p-1">
                                   <FolderOpen size={13} />
                                 </a>
                               ) : '-'}
                             </td>
-                            <td className="p-2.5 text-[#6b7280]">{formatToDisplayDate(j.date_glao)}</td>
-                            <td className="p-2.5 text-[#6b7280]">{formatToDisplayDate(j.date_pak)}</td>
-                            <td className="p-2.5 font-bold text-white bg-red-950/40">{formatToDisplayDate(j.date_mix)}</td>
-                            <td className="p-2.5 text-[#6b7280]">{formatToDisplayDate(j.date_sub || '')}</td>
-                            <td className="p-2.5 text-amber-300 font-mono">{formatToDisplayDate(j.date_deadline)}</td>
-                            <td className="p-2.5 text-center">
-                              <div className="flex items-center justify-center gap-1.5">
-                                <button onClick={() => setEditingJob(j)} className="text-[#8e94a4] hover:text-white p-1">
+
+                            {/* 6. เกลา */}
+                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_glao)}
+                            </td>
+
+                            {/* 7. พากย์ */}
+                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_pak)}
+                            </td>
+
+                            {/* 8. มิกซ์ */}
+                            <td className="py-2.5 px-2 text-center font-bold text-white bg-red-950/50 border-x border-red-500/20 font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_mix)}
+                            </td>
+
+                            {/* 9. ซับ */}
+                            <td className="py-2.5 px-2 text-center text-[#8e94a4] font-mono whitespace-nowrap">
+                              {formatToDisplayDate(j.date_sub || '')}
+                            </td>
+
+                            {/* 10. เดดไลน์ */}
+                            <td className="py-2.5 px-2 text-center text-amber-300 font-mono font-bold whitespace-nowrap">
+                              {formatToDisplayDate(j.date_deadline)}
+                            </td>
+
+                            {/* 11. จัดการ */}
+                            <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                              <div className="flex items-center justify-center gap-1">
+                                <button 
+                                  onClick={() => handleCopyJob(j)} 
+                                  className={`p-1 rounded transition ${
+                                    isCopied ? 'text-emerald-400' : 'text-[#8e94a4] hover:text-white'
+                                  }`} 
+                                  title="คัดลอก (ชื่อ_ตอน_นาที)"
+                                >
+                                  {isCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                                </button>
+                                <button onClick={() => setEditingJob(j)} className="text-[#8e94a4] hover:text-white p-1" title="แก้ไขงาน">
                                   <Edit3 size={13} />
                                 </button>
-                                <button onClick={() => handleDeleteJob(j.id)} className="text-[#555a66] hover:text-red-400 p-1">
+                                <button onClick={() => handleDeleteJob(j.id, j.title)} className="text-[#555a66] hover:text-red-400 p-1" title="ลบงาน">
                                   <Trash2 size={13} />
                                 </button>
                               </div>
@@ -1223,7 +1471,7 @@ export default function App() {
                       })}
                       {filteredJobs.length === 0 && (
                         <tr>
-                          <td colSpan={10} className="p-6 text-center text-[#555a66]">ไม่มีข้อมูล</td>
+                          <td colSpan={11} className="p-6 text-center text-[#555a66]">ไม่มีข้อมูล</td>
                         </tr>
                       )}
                     </tbody>
@@ -1285,8 +1533,8 @@ export default function App() {
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
                           <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${(analyticsData.periodEarly / analyticsData.maxPeriodMins) * 100}%` }}
+                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${(analyticsData.periodEarly / analyticsData.maxPeriodMins) * 100}%` }} 
                           />
                         </div>
                       </div>
@@ -1298,8 +1546,8 @@ export default function App() {
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
                           <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${(analyticsData.periodMid / analyticsData.maxPeriodMins) * 100}%` }}
+                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${(analyticsData.periodMid / analyticsData.maxPeriodMins) * 100}%` }} 
                           />
                         </div>
                       </div>
@@ -1311,8 +1559,8 @@ export default function App() {
                         </div>
                         <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden">
                           <div 
-                            className="bg-red-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${(analyticsData.periodLate / analyticsData.maxPeriodMins) * 100}%` }}
+                            className="bg-red-600 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${(analyticsData.periodLate / analyticsData.maxPeriodMins) * 100}%` }} 
                           />
                         </div>
                       </div>
@@ -1517,20 +1765,70 @@ export default function App() {
         </div>
       )}
 
-      {/* Custom Modal */}
-      {modalMessage && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-xs w-full text-center space-y-3 shadow-2xl">
-            <h4 className="text-base font-bold text-white">{modalMessage.title}</h4>
-            <p className="text-xs text-[#a0a6b5] leading-relaxed">{modalMessage.desc}</p>
-            <button onClick={() => setModalMessage(null)} className="w-full bg-red-600 hover:bg-red-500 text-white text-xs font-bold py-2.5 rounded-xl transition shadow-md">
-              ตกลง
-            </button>
+      {/* Unified Custom Modal */}
+      {dialogState && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-[#12141a] border border-red-500/40 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl">
+            <div className="flex justify-between items-start gap-2 border-b border-[#262933] pb-2.5">
+              <h4 className="text-sm font-bold text-white leading-snug">{dialogState.title}</h4>
+              <button onClick={() => setDialogState(null)} className="text-[#8e94a4] hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            {dialogState.desc && (
+              <div className="text-xs text-[#a0a6b5] leading-relaxed whitespace-pre-line bg-[#0a0b0e]/70 p-3 rounded-xl border border-[#262933] font-mono">
+                {dialogState.desc}
+              </div>
+            )}
+
+            {dialogState.type === 'prompt' && (
+              <div>
+                <input
+                  type="text"
+                  value={promptInputValue}
+                  onChange={(e) => setPromptInputValue(e.target.value)}
+                  placeholder={dialogState.inputPlaceholder || 'กรอกข้อมูล...'}
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3.5 py-2.5 text-xs text-white focus:border-red-500 focus:outline-none"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      dialogState.onSubmit?.(promptInputValue);
+                      setDialogState(null);
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              {dialogState.type !== 'alert' && (
+                <button
+                  onClick={() => setDialogState(null)}
+                  className="flex-1 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white font-bold py-2.5 rounded-xl text-xs transition"
+                >
+                  {dialogState.cancelText || 'ยกเลิก'}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (dialogState.type === 'prompt') {
+                    dialogState.onSubmit?.(promptInputValue);
+                  } else if (dialogState.type === 'confirm') {
+                    dialogState.onConfirm?.();
+                  }
+                  setDialogState(null);
+                }}
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md"
+              >
+                {dialogState.confirmText || (dialogState.type === 'alert' ? 'ตกลง' : 'ยืนยัน')}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Bottom Nav Bar */}
+      {/* 5. Bottom Nav Bar */}
       <nav className="fixed bottom-0 inset-x-0 bg-[#12141a]/95 border-t border-[#262933] px-4 py-3 z-40 backdrop-blur">
         <div className="grid grid-cols-4 max-w-xl md:max-w-2xl mx-auto">
           <button 
