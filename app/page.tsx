@@ -1086,7 +1086,8 @@ export default function App() {
                     >
                       <div className="flex justify-between items-start gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          {/* 1. แถวรหัสและชื่อเรื่อง */}
+                          <div className="flex items-center gap-2">
                             <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
                               isDW 
                                 ? 'bg-amber-400/15 text-amber-300 border-amber-400/40' 
@@ -1098,29 +1099,35 @@ export default function App() {
                             <span className="font-extrabold text-white text-base sm:text-lg tracking-wide truncate">
                               {job.title}
                             </span>
-
-                            {job.episode && (
-                              <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium">
-                                ตอน {job.episode}
-                              </span>
-                            )}
                           </div>
-                          
-                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+
+                          {/* 2. แถวจำนวนตอน (เช่น 50 ตอน) และ Google Drive อยู่บรรทัดเดียวกันเพื่อประหยัดพื้นที่ */}
+                          {(job.episode || job.drive_url) && (
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              {job.episode && (
+                                <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium shrink-0">
+                                  {job.episode} ตอน
+                                </span>
+                              )}
+
+                              {job.drive_url && (
+                                <a 
+                                  href={job.drive_url} 
+                                  target="_blank" 
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] bg-[#1c1f28] hover:bg-[#262a36] text-red-300 border border-[#262933] px-2.5 py-0.5 rounded-lg transition font-medium"
+                                >
+                                  <FolderOpen size={12} className="text-amber-400" /> Google Drive
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {/* 3. แถวจำนวนนาทีและยอดเงิน */}
+                          <div className="mt-1.5">
                             <span className="text-xs font-bold text-red-400">
                               {job.minutes} นาที <span className="text-[#8e94a4] font-normal">(฿{(job.minutes * 15).toLocaleString()})</span>
                             </span>
-
-                            {job.drive_url && (
-                              <a 
-                                href={job.drive_url} 
-                                target="_blank" 
-                                rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-[11px] bg-[#1c1f28] hover:bg-[#262a36] text-red-300 border border-[#262933] px-2.5 py-0.5 rounded-lg transition font-medium"
-                              >
-                                <FolderOpen size={12} className="text-amber-400" /> Google Drive
-                              </a>
-                            )}
                           </div>
                         </div>
 
