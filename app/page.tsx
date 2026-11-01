@@ -237,10 +237,7 @@ export default function App() {
 
   const [editingJob, setEditingJob] = useState<JobItem | null>(null);
 
-  const [currentMonth, setCurrentMonth] = useState<Date>(() => {
-    const now = new Date();
-    return new Date(now.getFullYear(), now.getMonth(), 1);
-  });
+  const [currentMonth, setCurrentMonth] = useState<Date>(new Date(2026, 0, 1));
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
   const [todayStr, setTodayStr] = useState<string>('');
   const [todayDisplay, setTodayDisplay] = useState<string>('');
@@ -272,6 +269,7 @@ export default function App() {
     setTodayStr(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
     setTodayDisplay(`${dayName}ที่ ${d} ${monthNames[m]} ${y}`);
 
+    // เพิ่มบรรทัดนี้ เพื่อให้อัปเดตเดือนปัจจุบันจริงตอนโหลดหน้าเว็บ
     setCurrentMonth(new Date(y, m, 1));
   }, []);
 
