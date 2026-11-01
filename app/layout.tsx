@@ -3,8 +3,12 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Mix Tracker',
-  description: 'ระบบบันทึกและคำนวณเงินงานมิกซ์เสียง',
+  description: 'ระบบจัดการคิวและยอดงานมิกซ์เสียง',
   manifest: '/manifest.json',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/apple-touch-icon.png',
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',

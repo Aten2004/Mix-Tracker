@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import Image from 'next/image';
 import { 
   Calendar as CalIcon, 
   ListFilter, 
@@ -8,11 +9,11 @@ import {
   DollarSign, 
   Plus, 
   Trash2, 
-  Edit3,
+  Edit3, 
   ChevronLeft, 
   ChevronRight, 
-  ChevronDown,
-  ChevronUp,
+  ChevronDown, 
+  ChevronUp, 
   FileText, 
   Clock, 
   Layers, 
@@ -22,24 +23,22 @@ import {
   RotateCcw, 
   CheckCircle2, 
   X, 
-  RefreshCw,
-  Target,
-  BarChart3,
-  TrendingUp,
-  HelpCircle,
-  Calculator,
-  Copy,
-  Check,
-  Archive,
-  ArrowUpRight,
-  Search
+  RefreshCw, 
+  Target, 
+  BarChart3, 
+  TrendingUp, 
+  HelpCircle, 
+  Calculator, 
+  Copy, 
+  Check, 
+  Archive, 
+  ArrowUpRight, 
+  Search 
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
   JobItem, 
-  BillingCycle,
-  parseQuickCode, 
-  parseSheetRow, 
+  BillingCycle, 
   formatToDisplayDate, 
   isDateString 
 } from '@/lib/parser';
@@ -62,6 +61,12 @@ interface CustomDialog {
   cancelText?: string;
   onConfirm?: () => void;
   onSubmit?: (val: string) => void;
+}
+
+// จุดที่ 1: Type สำหรับเก็บ Workspace และเป้าหมายเงินรายทีม
+interface WorkspaceItem {
+  name: string;
+  monthly_target: number;
 }
 
 function isDateLike(str: string): boolean {
@@ -203,8 +208,11 @@ export default function App() {
 
   const [tableSearchQuery, setTableSearchQuery] = useState('');
 
+  // จุดที่ 1: State สำหรับ Workspaces พร้อมเป้าหมายจาก Supabase
+  const [workspaceList, setWorkspaceList] = useState<WorkspaceItem[]>([]);
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
   const [selectedWs, setSelectedWs] = useState<string>('ทีมซีรีส์จีน (GS/DW)');
+  const [isWsDropdownOpen, setIsWsDropdownOpen] = useState(false);
 
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
@@ -244,15 +252,6 @@ export default function App() {
   const thaiDays = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
 
   useEffect(() => {
-    const savedTarget = localStorage.getItem('mix_monthly_target');
-    if (savedTarget) {
-      const val = parseFloat(savedTarget);
-      if (!isNaN(val)) {
-        setMonthlyTarget(val);
-        setTargetInput(val.toString());
-      }
-    }
-
     const savedNotesCol = localStorage.getItem('mix_notes_collapsed');
     if (savedNotesCol) setIsNotesCollapsed(savedNotesCol === 'true');
 
@@ -289,12 +288,20 @@ export default function App() {
     localStorage.setItem('mix_target_collapsed', String(nextVal));
   };
 
-  const saveTargetGoal = () => {
+  // จุดที่ 2: บันทึกเป้าหมายลง Supabase ในแถวของทีมที่เลือกอยู่ทันที
+  const saveTargetGoal = async () => {
     const val = parseFloat(targetInput);
     if (!isNaN(val) && val >= 0) {
       setMonthlyTarget(val);
-      localStorage.setItem('mix_monthly_target', val.toString());
       setIsEditingTarget(false);
+
+      // อัปเดตลงคอลัมน์ monthly_target ใน Supabase
+      await supabase
+        .from('workspaces')
+        .update({ monthly_target: val })
+        .eq('name', selectedWs);
+
+      setWorkspaceList(prev => prev.map(w => w.name === selectedWs ? { ...w, monthly_target: val } : w));
     }
   };
 
@@ -303,18 +310,33 @@ export default function App() {
     setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
   };
 
+  // จุดที่ 3: ดึง workspaces และเป้าหมายเงินของแต่ละทีมจาก Supabase
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: wsData } = await supabase.from('workspaces').select('name').order('created_at', { ascending: true });
+      const { data: wsData } = await supabase
+        .from('workspaces')
+        .select('name, monthly_target')
+        .order('created_at', { ascending: true });
+
       if (wsData && wsData.length > 0) {
-        const names = wsData.map(w => w.name);
+        const wsItems: WorkspaceItem[] = wsData.map(w => ({
+          name: w.name,
+          monthly_target: Number(w.monthly_target) || 14700
+        }));
+        setWorkspaceList(wsItems);
+        const names = wsItems.map(w => w.name);
         setWorkspaces(names);
+
         const savedWs = localStorage.getItem('mix_selected_ws');
-        if (savedWs && names.includes(savedWs)) {
-          setSelectedWs(savedWs);
-        } else if (!names.includes(selectedWs)) {
-          setSelectedWs(names[0]);
+        const activeName = (savedWs && names.includes(savedWs)) ? savedWs : (names.includes(selectedWs) ? selectedWs : names[0]);
+        setSelectedWs(activeName);
+
+        // ดึงค่าเป้าหมายของทีมที่เปิดอยู่มาแสดง
+        const currentWs = wsItems.find(w => w.name === activeName);
+        if (currentWs) {
+          setMonthlyTarget(currentWs.monthly_target);
+          setTargetInput(currentWs.monthly_target.toString());
         }
       }
 
@@ -401,6 +423,7 @@ export default function App() {
     });
   };
 
+  // จุดที่ 4: ฟังก์ชัน handleAddWorkspace (กำหนดเป้าหมายเริ่มต้นเมื่อสร้างทีม)
   const handleAddWorkspace = () => {
     setDialogState({
       type: 'prompt',
@@ -411,9 +434,13 @@ export default function App() {
       onSubmit: async (name) => {
         if (name && name.trim() && !workspaces.includes(name.trim())) {
           const trimmed = name.trim();
-          await supabase.from('workspaces').insert([{ name: trimmed }]);
+          const defaultTarget = 14700;
+          await supabase.from('workspaces').insert([{ name: trimmed, monthly_target: defaultTarget }]);
           setWorkspaces(prev => [...prev, trimmed]);
+          setWorkspaceList(prev => [...prev, { name: trimmed, monthly_target: defaultTarget }]);
           setSelectedWs(trimmed);
+          setMonthlyTarget(defaultTarget);
+          setTargetInput(defaultTarget.toString());
           localStorage.setItem('mix_selected_ws', trimmed);
         }
       }
@@ -843,24 +870,63 @@ export default function App() {
       {/* 1. Top Bar ปรับใหญ่และโปร่งขึ้น ย้ายเพิ่มทีมไปใน Dropdown */}
       <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-4 sm:px-5 py-3 sm:py-4">
         <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-3">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
-              <select 
-                value={selectedWs} 
-                onChange={(e) => {
-                  if (e.target.value === '__add_new__') {
-                    handleAddWorkspace();
-                  } else {
-                    setSelectedWs(e.target.value);
-                    localStorage.setItem('mix_selected_ws', e.target.value);
-                  }
-                }}
-                className="bg-transparent text-white font-black text-xl sm:text-2xl focus:outline-none cursor-pointer max-w-[220px] xs:max-w-[280px] sm:max-w-md truncate tracking-tight"
-              >
-                {workspaces.map(ws => <option key={ws} value={ws} className="bg-[#12141a] text-white">{ws}</option>)}
-                <option value="__add_new__" className="bg-[#181a22] text-red-400 font-bold">➕ เพิ่มทีมใหม่...</option>
-              </select>
-            </div>
+          
+          {/* จุดที่ 5: Dropdown เลือกทีม + ปุ่มเพิ่มทีมแบบใช้ Icon แท้ (ไม่มีอีโมจิ) */}
+          <div className="min-w-0 flex-1 relative">
+            <button
+              type="button"
+              onClick={() => setIsWsDropdownOpen(!isWsDropdownOpen)}
+              className="flex items-center gap-1.5 text-white font-black text-xl sm:text-2xl tracking-tight focus:outline-none cursor-pointer max-w-[210px] xs:max-w-[280px] sm:max-w-md truncate text-left"
+            >
+              <span className="truncate">{selectedWs}</span>
+              <ChevronDown size={18} className={`text-[#8e94a4] transition-transform duration-200 shrink-0 ${isWsDropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isWsDropdownOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setIsWsDropdownOpen(false)} />
+                <div className="absolute left-0 top-full mt-2.5 z-50 min-w-[200px] max-w-[280px] bg-[#12141a] border border-[#262933] rounded-2xl shadow-2xl py-1.5 overflow-hidden">
+                  <div className="max-h-60 overflow-y-auto">
+                    {workspaceList.map(ws => (
+                      <button
+                        key={ws.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedWs(ws.name);
+                          setMonthlyTarget(ws.monthly_target);
+                          setTargetInput(ws.monthly_target.toString());
+                          localStorage.setItem('mix_selected_ws', ws.name);
+                          setIsWsDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between transition ${
+                          ws.name === selectedWs 
+                            ? 'bg-red-950/40 text-red-400' 
+                            : 'text-white hover:bg-[#1c1f28]'
+                        }`}
+                      >
+                        <span className="truncate">{ws.name}</span>
+                        {ws.name === selectedWs && <Check size={14} className="text-red-400 shrink-0 ml-2" />}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="border-t border-[#262933] my-1" />
+
+                  {/* ปุ่มเพิ่มทีมใหม่พร้อม Icon แท้ <Plus /> */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsWsDropdownOpen(false);
+                      handleAddWorkspace();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-xs sm:text-sm font-bold text-red-400 hover:bg-[#1c1f28] flex items-center gap-2 transition"
+                  >
+                    <Plus size={15} className="shrink-0 text-red-400" />
+                    <span>เพิ่มทีมใหม่...</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
@@ -2054,14 +2120,21 @@ export default function App() {
               </button>
             </div>
 
-            {dialogState.desc && (
+            {/* แสดงคำอธิบายสำหรับ Alert/Confirm ทั่วไป */}
+            {dialogState.type !== 'prompt' && dialogState.desc && (
               <div className="text-xs text-[#a0a6b5] leading-relaxed whitespace-pre-line bg-[#0a0b0e]/70 p-3 rounded-xl border border-[#262933] font-mono">
                 {dialogState.desc}
               </div>
             )}
 
+            {/* สำหรับ Prompt: แสดงข้อความคำอธิบายแบบไม่มีกรอบ แล้วตามด้วยช่องพิมพ์ชื่อ */}
             {dialogState.type === 'prompt' && (
-              <div>
+              <div className="space-y-1.5">
+                {dialogState.desc && (
+                  <p className="text-xs text-[#8e94a4]">
+                    {dialogState.desc}
+                  </p>
+                )}
                 <input
                   type="text"
                   value={promptInputValue}
