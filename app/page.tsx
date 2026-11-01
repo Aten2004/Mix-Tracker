@@ -237,7 +237,10 @@ export default function App() {
 
   const [editingJob, setEditingJob] = useState<JobItem | null>(null);
 
-  const [currentMonth, setCurrentMonth] = useState(new Date(2026, 9, 1));
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
   const [todayStr, setTodayStr] = useState<string>('');
   const [todayDisplay, setTodayDisplay] = useState<string>('');
@@ -268,6 +271,8 @@ export default function App() {
     const dayName = thaiDays[now.getDay()];
     setTodayStr(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
     setTodayDisplay(`${dayName}ที่ ${d} ${monthNames[m]} ${y}`);
+
+    setCurrentMonth(new Date(y, m, 1));
   }, []);
 
   useEffect(() => {
@@ -930,9 +935,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-            <button onClick={fetchData} title="รีเฟรช Cloud" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
-              <RefreshCw size={15} className={loading ? 'animate-spin text-red-500' : ''} />
-            </button>
             <button onClick={handleRenameWorkspace} title="เปลี่ยนชื่อทีม" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
               <Edit3 size={15} />
             </button>
