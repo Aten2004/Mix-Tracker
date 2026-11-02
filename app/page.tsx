@@ -33,7 +33,8 @@ import {
   Check, 
   Archive, 
   ArrowUpRight, 
-  Search 
+  Search,
+  Settings
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -63,7 +64,6 @@ interface CustomDialog {
   onSubmit?: (val: string) => void;
 }
 
-// จุดที่ 1: Type สำหรับเก็บ Workspace และเป้าหมายเงินรายทีม
 interface WorkspaceItem {
   name: string;
   monthly_target: number;
@@ -208,7 +208,6 @@ export default function App() {
 
   const [tableSearchQuery, setTableSearchQuery] = useState('');
 
-  // จุดที่ 1: State สำหรับ Workspaces พร้อมเป้าหมายจาก Supabase
   const [workspaceList, setWorkspaceList] = useState<WorkspaceItem[]>([]);
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
   const [selectedWs, setSelectedWs] = useState<string>('ทีมซีรีส์จีน (GS/DW)');
@@ -269,7 +268,6 @@ export default function App() {
     setTodayStr(`${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
     setTodayDisplay(`${dayName}ที่ ${d} ${monthNames[m]} ${y}`);
 
-    // เพิ่มบรรทัดนี้ เพื่อให้อัปเดตเดือนปัจจุบันจริงตอนโหลดหน้าเว็บ
     setCurrentMonth(new Date(y, m, 1));
   }, []);
 
@@ -291,14 +289,12 @@ export default function App() {
     localStorage.setItem('mix_target_collapsed', String(nextVal));
   };
 
-  // จุดที่ 2: บันทึกเป้าหมายลง Supabase ในแถวของทีมที่เลือกอยู่ทันที
   const saveTargetGoal = async () => {
     const val = parseFloat(targetInput);
     if (!isNaN(val) && val >= 0) {
       setMonthlyTarget(val);
       setIsEditingTarget(false);
 
-      // อัปเดตลงคอลัมน์ monthly_target ใน Supabase
       await supabase
         .from('workspaces')
         .update({ monthly_target: val })
@@ -313,7 +309,6 @@ export default function App() {
     setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
   };
 
-  // จุดที่ 3: ดึง workspaces และเป้าหมายเงินของแต่ละทีมจาก Supabase
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
@@ -335,7 +330,6 @@ export default function App() {
         const activeName = (savedWs && names.includes(savedWs)) ? savedWs : (names.includes(selectedWs) ? selectedWs : names[0]);
         setSelectedWs(activeName);
 
-        // ดึงค่าเป้าหมายของทีมที่เปิดอยู่มาแสดง
         const currentWs = wsItems.find(w => w.name === activeName);
         if (currentWs) {
           setMonthlyTarget(currentWs.monthly_target);
@@ -426,7 +420,6 @@ export default function App() {
     });
   };
 
-  // จุดที่ 4: ฟังก์ชัน handleAddWorkspace (กำหนดเป้าหมายเริ่มต้นเมื่อสร้างทีม)
   const handleAddWorkspace = () => {
     setDialogState({
       type: 'prompt',
@@ -466,6 +459,7 @@ export default function App() {
           await supabase.from('notes').update({ workspace: trimmed }).eq('workspace', selectedWs);
           await supabase.from('billing_cycles').update({ workspace: trimmed }).eq('workspace', selectedWs);
           setWorkspaces(prev => prev.map(w => w === selectedWs ? trimmed : w));
+          setWorkspaceList(prev => prev.map(w => w.name === selectedWs ? { ...w, name: trimmed } : w));
           setSelectedWs(trimmed);
           localStorage.setItem('mix_selected_ws', trimmed);
           fetchData();
@@ -566,8 +560,11 @@ export default function App() {
           episode: editingJob.episode,
           minutes: editingJob.minutes,
           drive_url: editingJob.drive_url || '',
-          date_mix: editingJob.date_mix,
-          date_deadline: editingJob.date_deadline
+          date_glao: editingJob.date_glao || '',
+          date_pak: editingJob.date_pak || '',
+          date_mix: editingJob.date_mix || '',
+          date_sub: editingJob.date_sub || '',
+          date_deadline: editingJob.date_deadline || ''
         }).eq('id', editingJob.id);
 
         if (!error) {
@@ -731,18 +728,21 @@ export default function App() {
 
   const netRatePerMin = 15 * 0.97;
   const totalMinsNeeded = Math.ceil(monthlyTarget / netRatePerMin);
-  const remainingMinsNeeded = Math.max(0, totalMinsNeeded - currentTotalMins);
-  const remainingMoneyNeeded = Math.max(0, monthlyTarget - currentNet);
+  const rawRemainingMins = Math.max(0, totalMinsNeeded - currentTotalMins);
   const targetPercent = monthlyTarget > 0 ? Math.min(100, Math.round((currentNet / monthlyTarget) * 100)) : 100;
 
-  const avgMovieLength = useMemo(() => {
-    const validJobs = currentCyclePendingJobs.filter(j => j.minutes > 0);
-    if (validJobs.length === 0) return 80;
-    const sum = validJobs.reduce((acc, c) => acc + c.minutes, 0);
-    return Math.round(sum / validJobs.length) || 80;
-  }, [currentCyclePendingJobs]);
+  // คำนวณจำนวนเรื่องและนาทีเฉลี่ย
+  const standardMovieLength = 80;
+  const remainingMoviesEst = rawRemainingMins > 0 
+    ? Math.ceil(rawRemainingMins / standardMovieLength) 
+    : 0;
+  const avgRemainingMinsPerMovie = remainingMoviesEst > 0 
+    ? Math.ceil(rawRemainingMins / remainingMoviesEst) + 1
+    : 0;
 
-  const remainingMoviesEst = Math.ceil(remainingMinsNeeded / avgMovieLength);
+  const remainingMinsNeeded = remainingMoviesEst * avgRemainingMinsPerMovie;
+
+  const remainingMoneyNeeded = Math.round(remainingMinsNeeded * netRatePerMin);
 
   const analyticsData = useMemo(() => {
     let gsMins = 0;
@@ -870,11 +870,10 @@ export default function App() {
   return (
     <main className="min-h-screen bg-[#0a0b0e] text-[#f0f2f5] pb-28 font-sans select-none">
       
-      {/* 1. Top Bar ปรับใหญ่และโปร่งขึ้น ย้ายเพิ่มทีมไปใน Dropdown */}
+      {/* 1. Top Bar */}
       <header className="sticky top-0 z-30 bg-[#12141a]/95 backdrop-blur border-b border-[#262933] px-4 sm:px-5 py-3 sm:py-4">
         <div className="flex justify-between items-center max-w-xl md:max-w-2xl mx-auto gap-3">
           
-          {/* จุดที่ 5: Dropdown เลือกทีม + ปุ่มเพิ่มทีมแบบใช้ Icon แท้ (ไม่มีอีโมจิ) */}
           <div className="min-w-0 flex-1 relative">
             <button
               type="button"
@@ -915,7 +914,6 @@ export default function App() {
 
                   <div className="border-t border-[#262933] my-1" />
 
-                  {/* ปุ่มเพิ่มทีมใหม่พร้อม Icon แท้ <Plus /> */}
                   <button
                     type="button"
                     onClick={() => {
@@ -1013,7 +1011,24 @@ export default function App() {
             </div>
           </div>
 
-          {isTargetCollapsed && (
+          {isEditingTarget ? (
+            <div className="flex gap-2 bg-[#0a0b0e] p-2 rounded-xl border border-[#262933]">
+              <input 
+                type="number" 
+                value={targetInput}
+                onChange={(e) => setTargetInput(e.target.value)}
+                placeholder="เป้าหมายเงินสุทธิ..."
+                className="bg-transparent text-sm text-white min-w-0 flex-1 px-2 focus:outline-none font-mono"
+                autoFocus
+              />
+              <button 
+                onClick={saveTargetGoal}
+                className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
+              >
+                ตกลง
+              </button>
+            </div>
+          ) : isTargetCollapsed ? (
             <div className="pt-2 border-t border-[#1c1f28] flex justify-between items-center text-xs gap-2">
               <div className="flex items-center gap-1.5 shrink-0">
                 <span className="font-mono font-bold text-white text-[11px] sm:text-xs">฿{monthlyTarget.toLocaleString()}</span>
@@ -1027,67 +1042,49 @@ export default function App() {
                 </span>
               </div>
             </div>
-          )}
-
-          {!isTargetCollapsed && (
-            <>
-              {isEditingTarget ? (
-                <div className="flex gap-2 bg-[#0a0b0e] p-2 rounded-xl border border-[#262933]">
-                  <input 
-                    type="number" 
-                    value={targetInput}
-                    onChange={(e) => setTargetInput(e.target.value)}
-                    placeholder="เป้าหมายเงินสุทธิ..."
-                    className="bg-transparent text-sm text-white min-w-0 flex-1 px-2 focus:outline-none font-mono"
-                  />
-                  <button 
-                    onClick={saveTargetGoal}
-                    className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
-                  >
-                    บันทึก
-                  </button>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex justify-between items-end">
+                <div>
+                  <span className="text-xs text-[#8e94a4]">เป้าหมาย ({selectedWs}):</span>
+                  <span className="text-sm sm:text-base font-black text-white ml-1.5">฿{monthlyTarget.toLocaleString()}</span>
                 </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="flex justify-between items-end">
-                    <div>
-                      <span className="text-xs text-[#8e94a4]">เป้าหมาย:</span>
-                      <span className="text-sm sm:text-base font-black text-white ml-1.5">฿{monthlyTarget.toLocaleString()}</span>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs text-red-400 font-bold">{targetPercent}%</span>
-                      <span className="text-[10px] text-[#8e94a4] ml-1">สำเร็จแล้ว</span>
-                    </div>
-                  </div>
-
-                  <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden p-0.5 border border-[#262933]">
-                    <div 
-                      className="bg-gradient-to-r from-red-700 to-red-500 h-full rounded-full transition-all duration-500"
-                      style={{ width: `${targetPercent}%` }}
-                    />
-                  </div>
-
-                  <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2 text-xs mt-2">
-                    <div>
-                      <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
-                      <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
-                        {remainingMinsNeeded > 0 ? `${remainingMinsNeeded} นาที` : 'ครบแล้ว! 🎉'}
-                      </span>
-                      {remainingMoneyNeeded > 0 && (
-                        <span className="text-[10px] text-red-400 block mt-0.5 truncate">(ยังขาดอีก ฿{remainingMoneyNeeded.toLocaleString()})</span>
-                      )}
-                    </div>
-                    <div>
-                      <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
-                      <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
-                        {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ครบแล้ว! 🎉'}
-                      </span>
-                      <span className="text-[10px] text-[#6b7280] block mt-0.5 truncate">(เฉลี่ยเรื่องละ {avgMovieLength} นาที)</span>
-                    </div>
-                  </div>
+                <div className="text-right">
+                  <span className="text-xs text-red-400 font-bold">{targetPercent}%</span>
+                  <span className="text-[10px] text-[#8e94a4] ml-1">สำเร็จแล้ว</span>
                 </div>
-              )}
-            </>
+              </div>
+
+              <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden p-0.5 border border-[#262933]">
+                <div 
+                  className="bg-gradient-to-r from-red-700 to-red-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${targetPercent}%` }}
+                />
+              </div>
+
+              <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2 text-xs mt-2">
+                <div>
+                  <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
+                  <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
+                    {remainingMinsNeeded > 0 ? `${remainingMinsNeeded} นาที` : 'ครบแล้ว! 🎉'}
+                  </span>
+                  {remainingMoneyNeeded > 0 && (
+                    <span className="text-[10px] text-red-400 block mt-0.5 truncate">(ยังขาดอีก ฿{remainingMoneyNeeded.toLocaleString()})</span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
+                  <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
+                    {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ครบแล้ว! 🎉'}
+                  </span>
+                  {remainingMinsNeeded > 0 && (
+                    <span className="text-[10px] text-[#6b7280] block mt-0.5 truncate">
+                      (เฉลี่ยเรื่องละ ~{avgRemainingMinsPerMovie} นาที)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
           )}
 
           {showCalcGuide && (
@@ -1118,7 +1115,7 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. ช่องโน้ต & ลิงก์เดดไลน์ */}
+        {/* 3. ช่องโน้ต*/}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <button 
@@ -1126,7 +1123,7 @@ export default function App() {
               className="min-w-0 text-xs font-bold text-red-400 flex items-center gap-1.5 uppercase tracking-wider hover:text-red-300 transition text-left"
             >
               <FileText size={15} className="shrink-0" /> 
-              <span className="truncate">บันทึกข้อความ & ลิงก์เดดไลน์</span>
+              <span className="truncate">บันทึกข้อความ</span>
               <span className="text-[10px] bg-[#1c1f28] text-[#8e94a4] px-1.5 py-0.2 rounded border border-[#262933] font-mono shrink-0">
                 {filteredNotes.length}
               </span>
@@ -1239,7 +1236,6 @@ export default function App() {
         {activeTab === 'queue' && (
           <div className="space-y-4">
             
-            {/* กล่องบันทึกงานใหม่ (ภาษาไทยล้วน + 2 ช่องยืดหยุ่นสูง) */}
             <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-5 space-y-3.5">
               <div className="flex justify-between items-center gap-2 flex-wrap">
                 <h2 className="text-xs font-bold text-red-400 tracking-wider uppercase">บันทึกงานใหม่</h2>
@@ -1338,7 +1334,6 @@ export default function App() {
                           : 'bg-gradient-to-b from-[#0e1620] to-[#0c1219] border-cyan-500/35 hover:border-cyan-500/60'
                       } ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
-                      {/* แถวที่ 1: หัวการ์ด - รหัส + ชื่อเรื่องยาวได้เต็มที่ + 4 ปุ่มไอคอนขวามือ */}
                       <div className="flex justify-between items-center gap-2">
                         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
                           <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
@@ -1354,7 +1349,6 @@ export default function App() {
                           </span>
                         </div>
 
-                        {/* 4 ปุ่มไอคอนจัดการขวามือ */}
                         <div className="flex items-center gap-1 shrink-0">
                           <button 
                             onClick={() => handleCopyJob(job)} 
@@ -1383,22 +1377,18 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* แถวที่ 2: ลำดับสายตา ตอน -> นาที (เงิน) -> Google Drive สีเขียว และปุ่มคิดเงิน */}
                       <div className="flex justify-between items-center gap-2 mt-2 pt-2 border-t border-[#1c1f28]/60 flex-wrap">
                         <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                          {/* 1. ตอน */}
                           {job.episode && (
                             <span className="text-[11px] bg-[#1c1f28] text-[#a0a6b5] px-2 py-0.5 rounded-md border border-[#262933] font-medium shrink-0">
                               {job.episode} ตอน
                             </span>
                           )}
 
-                          {/* 2. นาที (ยอดเงิน) วางต่อจากตอน */}
                           <span className="text-xs font-bold text-red-400 whitespace-nowrap">
                             {job.minutes} นาที <span className="text-[#8e94a4] font-normal">(฿{(job.minutes * 15).toLocaleString()})</span>
                           </span>
 
-                          {/* 3. Google Drive สีเขียว */}
                           {job.drive_url && (
                             <a 
                               href={job.drive_url} 
@@ -1406,12 +1396,11 @@ export default function App() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 text-[11px] bg-[#0e2a1b] hover:bg-[#133824] text-emerald-300 border border-emerald-600/40 px-2.5 py-0.5 rounded-lg transition font-medium shrink-0"
                             >
-                              <FolderOpen size={12} className="text-emerald-400" /> Google Drive
+                              <FolderOpen size={12} className="text-emerald-400" /> Drive
                             </a>
                           )}
                         </div>
 
-                        {/* ปุ่มคิดเงินรอบนี้ */}
                         <button 
                           onClick={() => toggleJobBilling(job)}
                           className={`text-[11px] sm:text-xs px-2.5 py-1 rounded-xl border font-semibold whitespace-nowrap transition shrink-0 ${
@@ -1424,7 +1413,6 @@ export default function App() {
                         </button>
                       </div>
 
-                      {/* แถวที่ 3: Mini-table 5 วันที่ขั้นตอนทำงาน */}
                       <div className="mt-2.5 pt-2 border-t border-[#262933]">
                         <div className="grid grid-cols-5 text-center text-[9px] sm:text-[10px] uppercase font-bold text-[#6b7280] pb-1">
                           <div>เกลา</div>
@@ -1613,7 +1601,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* ช่องค้นหา/ตัวกรองชื่อเรื่องในหน้าตาราง */}
             {(tableSubView === 'current' || tableSubView === 'billed') && (
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e94a4]" />
@@ -1635,7 +1622,6 @@ export default function App() {
               </div>
             )}
 
-            {/* ตารางที่ 1: งานในรอบปัจจุบัน */}
             {tableSubView === 'current' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
                 <div className="flex justify-between items-center gap-2">
@@ -1763,7 +1749,6 @@ export default function App() {
               </div>
             )}
 
-            {/* ตารางที่ 2: งานที่ปิดรอบแล้ว */}
             {tableSubView === 'billed' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
                 <div className="flex justify-between items-center gap-2">
@@ -2021,10 +2006,10 @@ export default function App() {
 
       </div>
 
-      {/* Edit Job Modal */}
+      {/* Edit Job Modal: ช่องใส่วันที่แบบไว (วางทั้งแถวจาก Sheet) + แสดงผล 5 ขั้นตอน + พับเก็บช่องเลือกแบบละเอียด */}
       {editingJob && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl">
+          <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center border-b border-[#262933] pb-2">
               <h4 className="text-sm font-bold text-white">แก้ไขงาน {editingJob.title}</h4>
               <button onClick={() => setEditingJob(null)} className="text-[#8e94a4] hover:text-white">
@@ -2075,25 +2060,146 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[#8e94a4] block mb-1">วันมิกซ์</label>
-                  <input 
-                    type="date" 
-                    value={editingJob.date_mix}
-                    onChange={(e) => setEditingJob({ ...editingJob, date_mix: e.target.value })}
-                    className="w-full bg-[#0a0b0e] border border-red-500/50 rounded-lg p-2 text-white"
-                  />
+              {/* ช่องใส่วันที่แบบไว (วางทั้งแถวเหมือนตอนกรอกแรก) + แสดงตาราง 5 ขั้นตอน */}
+              <div className="pt-2 border-t border-[#262933] space-y-2">
+                <label className="text-xs text-[#8e94a4] block font-medium">
+                  ข้อมูลวันที่ / แถวเดดไลน์ (วางทั้งแถวจาก Sheet ได้ทันที):
+                </label>
+                <textarea 
+                  rows={2}
+                  placeholder="เช่น 29-10-26 30-10-26 31-10-26 1-11-26 2-11-26 หรือวางทั้งแถวจาก Sheet"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const tokens = val
+                      .replace(/(https?:\/\/[^\s]+)/g, '')
+                      .split(/\t+|\s+/)
+                      .map(t => t.trim())
+                      .filter(Boolean);
+
+                    const foundDates: string[] = [];
+                    for (const tok of tokens) {
+                      if (isDateLike(tok)) {
+                        foundDates.push(cleanDateToStandard(tok));
+                      }
+                    }
+
+                    if (foundDates.length === 0) return;
+
+                    let date_glao = '';
+                    let date_pak = '';
+                    let date_mix = '';
+                    let date_sub = '';
+                    let date_deadline = '';
+
+                    if (foundDates.length >= 5) {
+                      date_glao = foundDates[0];
+                      date_pak = foundDates[1];
+                      date_mix = foundDates[2];
+                      date_sub = foundDates[3];
+                      date_deadline = foundDates[4];
+                    } else if (foundDates.length === 4) {
+                      date_glao = foundDates[0];
+                      date_pak = foundDates[1];
+                      date_mix = foundDates[2];
+                      date_deadline = foundDates[3];
+                    } else if (foundDates.length === 3) {
+                      date_pak = foundDates[0];
+                      date_mix = foundDates[1];
+                      date_deadline = foundDates[2];
+                    } else if (foundDates.length === 2) {
+                      date_mix = foundDates[0];
+                      date_deadline = foundDates[1];
+                    } else if (foundDates.length === 1) {
+                      date_deadline = foundDates[0];
+                      date_mix = foundDates[0];
+                    }
+
+                    setEditingJob(prev => prev ? ({
+                      ...prev,
+                      date_glao,
+                      date_pak,
+                      date_mix,
+                      date_sub,
+                      date_deadline
+                    }) : null);
+                  }}
+                  className="w-full bg-[#0a0b0e] border border-red-500/40 rounded-xl px-3 py-2 text-xs text-white placeholder-[#454954] focus:border-red-500 focus:outline-none font-mono"
+                />
+
+                {/* แสดงสถานะวันที่ทั้ง 5 ขั้นตอนแบบเดียวกับคิวงานหลัก */}
+                <div className="pt-1">
+                  <div className="grid grid-cols-5 text-center text-[9px] uppercase font-bold text-[#6b7280] pb-1">
+                    <div>เกลา</div>
+                    <div>พากย์</div>
+                    <div className="text-red-400 font-extrabold">มิกซ์</div>
+                    <div>ซับ</div>
+                    <div className="text-amber-400 font-extrabold">เดดไลน์</div>
+                  </div>
+                  <div className="grid grid-cols-5 text-center text-[10px] font-mono bg-[#0a0b0e] rounded-xl py-1.5 border border-[#262933]">
+                    <div className="text-[#8e94a4] truncate px-0.5">{formatToDisplayDate(editingJob.date_glao || '')}</div>
+                    <div className="text-[#8e94a4] truncate px-0.5">{formatToDisplayDate(editingJob.date_pak || '')}</div>
+                    <div className="text-red-200 font-bold bg-red-950/70 border border-red-500/60 rounded mx-0.5 py-0.5 truncate px-0.5">
+                      {formatToDisplayDate(editingJob.date_mix || '')}
+                    </div>
+                    <div className="text-[#8e94a4] truncate px-0.5">{formatToDisplayDate(editingJob.date_sub || '')}</div>
+                    <div className="text-amber-300 font-bold truncate px-0.5">{formatToDisplayDate(editingJob.date_deadline || '')}</div>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[#8e94a4] block mb-1">วันเดดไลน์</label>
-                  <input 
-                    type="date" 
-                    value={editingJob.date_deadline}
-                    onChange={(e) => setEditingJob({ ...editingJob, date_deadline: e.target.value })}
-                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
-                  />
-                </div>
+
+                {/* พับเก็บช่องเลือกปฏิทินแบบละเอียดไว้ เผื่อต้องการแก้เฉพาะวันใดวันหนึ่ง */}
+                <details className="text-[11px] text-[#8e94a4] pt-1">
+                  <summary className="cursor-pointer hover:text-white transition select-none py-1 inline-flex items-center gap-1.5">
+                    <Settings size={13} className="shrink-0 text-[#8e94a4]" />
+                    <span>ปรับแก้วันที่เฉพาะช่อง (คลิกเพื่อกางออก)</span>
+                  </summary>
+                  <div className="grid grid-cols-2 gap-2 pt-2">
+                    <div>
+                      <label className="text-[#8e94a4] block mb-1">วันเกลา</label>
+                      <input 
+                        type="date" 
+                        value={editingJob.date_glao || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, date_glao: e.target.value })}
+                        className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[#8e94a4] block mb-1">วันพากย์</label>
+                      <input 
+                        type="date" 
+                        value={editingJob.date_pak || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, date_pak: e.target.value })}
+                        className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-red-400 font-bold block mb-1">วันมิกซ์</label>
+                      <input 
+                        type="date" 
+                        value={editingJob.date_mix || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, date_mix: e.target.value })}
+                        className="w-full bg-[#0a0b0e] border border-red-500/50 rounded-lg p-2 text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[#8e94a4] block mb-1">วันซับ</label>
+                      <input 
+                        type="date" 
+                        value={editingJob.date_sub || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, date_sub: e.target.value })}
+                        className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="text-amber-400 font-bold block mb-1">วันเดดไลน์ส่ง</label>
+                      <input 
+                        type="date" 
+                        value={editingJob.date_deadline || ''}
+                        onChange={(e) => setEditingJob({ ...editingJob, date_deadline: e.target.value })}
+                        className="w-full bg-[#0a0b0e] border border-amber-500/40 rounded-lg p-2 text-white"
+                      />
+                    </div>
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -2120,14 +2226,12 @@ export default function App() {
               </button>
             </div>
 
-            {/* แสดงคำอธิบายสำหรับ Alert/Confirm ทั่วไป */}
             {dialogState.type !== 'prompt' && dialogState.desc && (
               <div className="text-xs text-[#a0a6b5] leading-relaxed whitespace-pre-line bg-[#0a0b0e]/70 p-3 rounded-xl border border-[#262933] font-mono">
                 {dialogState.desc}
               </div>
             )}
 
-            {/* สำหรับ Prompt: แสดงข้อความคำอธิบายแบบไม่มีกรอบ แล้วตามด้วยช่องพิมพ์ชื่อ */}
             {dialogState.type === 'prompt' && (
               <div className="space-y-1.5">
                 {dialogState.desc && (
