@@ -234,6 +234,10 @@ export default function App() {
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
 
+  // State สำหรับจัดการ Note: คัดลอก และเปิดดู/แก้ไขแบบเต็ม
+  const [editingNote, setEditingNote] = useState<NoteItem | null>(null);
+  const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
+
   const [editingJob, setEditingJob] = useState<JobItem | null>(null);
 
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date(2026, 0, 1));
@@ -626,13 +630,43 @@ export default function App() {
     });
   };
 
+  // คัดลอกข้อความโน้ต
+  const handleCopyNote = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedNoteId(id);
+    setTimeout(() => {
+      setCopiedNoteId(null);
+    }, 1500);
+  };
+
+  // บันทึกการแก้ไขโน้ตลง Supabase
+  const handleSaveEditNote = async () => {
+    if (!editingNote) return;
+    const { error } = await supabase
+      .from('notes')
+      .update({
+        title: editingNote.title.trim() || 'บันทึกข้อความ',
+        content: editingNote.content,
+        date: editingNote.date
+      })
+      .eq('id', editingNote.id);
+
+    if (!error) {
+      setEditingNote(null);
+      fetchData();
+    } else {
+      setDialogState({ title: 'เกิดข้อผิดพลาด', desc: error.message, type: 'alert' });
+    }
+  };
+
   const handleAddNote = async () => {
-    if (!noteTitle.trim()) return;
+    if (!noteContent.trim() && !noteTitle.trim()) return;
+    const finalTitle = noteTitle.trim() || noteContent.trim().split('\n')[0].slice(0, 35) || 'บันทึกข้อความ';
     const newNote = {
       id: Date.now().toString(),
       workspace: selectedWs,
       date: noteDate || new Date().toISOString().split('T')[0],
-      title: noteTitle,
+      title: finalTitle,
       content: noteContent
     };
 
@@ -1115,7 +1149,7 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. ช่องโน้ต*/}
+        {/* 3. ช่องโน้ต (ปรับให้รองรับข้อความยาว คัดลอกได้ทันที และแตะเพื่อดู/แก้ไขตัวเต็ม) */}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <button 
@@ -1147,7 +1181,7 @@ export default function App() {
             <div className="pt-2 border-t border-[#1c1f28]">
               {filteredNotes.length > 0 ? (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  <span className="text-[10px] text-[#6b7280] shrink-0 font-medium">ลิงก์ด่วน:</span>
+                  <span className="text-[10px] text-[#6b7280] shrink-0 font-medium">บันทึกด่วน:</span>
                   {filteredNotes.map(n => {
                     const urlMatch = n.content.match(/(https?:\/\/[^\s]+)/);
                     if (urlMatch) {
@@ -1165,9 +1199,13 @@ export default function App() {
                       );
                     }
                     return (
-                      <span key={n.id} className="shrink-0 text-[11px] bg-[#181a22] text-[#8e94a4] px-2.5 py-1 rounded-xl border border-[#262933]">
+                      <button 
+                        key={n.id} 
+                        onClick={() => setEditingNote(n)}
+                        className="shrink-0 text-[11px] bg-[#181a22] hover:bg-[#262a36] text-[#8e94a4] hover:text-white px-2.5 py-1 rounded-xl border border-[#262933] transition"
+                      >
                         {n.title}
-                      </span>
+                      </button>
                     );
                   })}
                 </div>
@@ -1188,44 +1226,83 @@ export default function App() {
                 />
                 <input 
                   type="text" 
-                  placeholder="หัวข้อบันทึก..."
+                  placeholder="หัวข้อบันทึก (เว้นว่างได้)..."
                   value={noteTitle}
                   onChange={(e) => setNoteTitle(e.target.value)}
                   className="w-full sm:col-span-2 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
                 />
               </div>
 
-              <div className="flex gap-2">
-                <input 
-                  type="text" 
-                  placeholder="รายละเอียด หรือวางลิงก์ เช่น https://docs.google.com/..."
+              <div className="space-y-2">
+                <textarea 
+                  rows={2}
+                  placeholder="รายละเอียด หรือวางข้อความยาว/โค้ด เช่น https://docs.google.com/..."
                   value={noteContent}
                   onChange={(e) => setNoteContent(e.target.value)}
-                  className="min-w-0 flex-1 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none font-mono"
                 />
-                <button onClick={handleAddNote} className="shrink-0 whitespace-nowrap bg-red-600 hover:bg-red-500 text-white px-3.5 sm:px-4 py-2 rounded-xl text-xs font-bold transition shadow-md">
+                <button 
+                  onClick={handleAddNote} 
+                  className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-2 rounded-xl text-xs transition shadow-md"
+                >
                   เพิ่มโน้ต
                 </button>
               </div>
 
               {filteredNotes.length > 0 && (
-                <div className="space-y-2 pt-1 max-h-40 overflow-y-auto pr-1">
-                  {filteredNotes.map(n => (
-                    <div key={n.id} className="bg-[#181a22] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2">
-                      <div className="space-y-1 min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-red-300">{n.title}</span>
-                          <span className="text-[10px] text-[#6b7280] font-mono">{n.date}</span>
+                <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
+                  {filteredNotes.map(n => {
+                    const isCopied = copiedNoteId === n.id;
+                    return (
+                      <div 
+                        key={n.id} 
+                        className="bg-[#181a22] hover:bg-[#1b1e28] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2 transition group"
+                      >
+                        <div 
+                          onClick={() => setEditingNote(n)}
+                          className="space-y-1 min-w-0 flex-1 cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-red-300 group-hover:text-red-200 transition truncate max-w-[200px]">
+                              {n.title}
+                            </span>
+                            <span className="text-[10px] text-[#6b7280] font-mono">{n.date}</span>
+                          </div>
+                          <div className="text-[#a6adbb] text-[12px] leading-relaxed break-words line-clamp-2 font-mono whitespace-pre-line">
+                            {renderTextWithLinks(n.content)}
+                          </div>
                         </div>
-                        <div className="text-[#a6adbb] text-[12px] leading-relaxed break-words">
-                          {renderTextWithLinks(n.content)}
+
+                        <div className="flex items-center gap-1 shrink-0 pt-0.5">
+                          <button 
+                            onClick={() => handleCopyNote(n.content, n.id)} 
+                            className={`p-1.5 rounded-lg border transition ${
+                              isCopied 
+                                ? 'bg-emerald-950/60 border-emerald-500/60 text-emerald-400' 
+                                : 'bg-[#12141a] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border-[#262933]'
+                            }`}
+                            title="คัดลอกข้อความ"
+                          >
+                            {isCopied ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                          </button>
+                          <button 
+                            onClick={() => setEditingNote(n)} 
+                            className="p-1.5 bg-[#12141a] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-lg transition" 
+                            title="เปิดดู / แก้ไข"
+                          >
+                            <Edit3 size={13} />
+                          </button>
+                          <button 
+                            onClick={() => handleDeleteNote(n.id, n.title)} 
+                            className="p-1.5 text-[#555a66] hover:text-red-400 transition" 
+                            title="ลบบันทึก"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         </div>
                       </div>
-                      <button onClick={() => handleDeleteNote(n.id, n.title)} className="shrink-0 text-[#555a66] hover:text-red-400 p-1" title="ลบบันทึก">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -1728,7 +1805,7 @@ export default function App() {
                                 <button onClick={() => handleMarkJobAsBilled(j)} className="text-[#8e94a4] hover:text-amber-400 p-1" title="ย้ายไปปิดรอบแล้ว">
                                   <Archive size={13} />
                                 </button>
-                                <button onClick={() => handleDeleteJob(j.id, j.title)} className="text-[#555a66] hover:text-red-400 p-1" title="ลบงาน">
+                                <button onClick={() => handleDeleteJob(j.id, jobTitle(j.title))} className="text-[#555a66] hover:text-red-400 p-1" title="ลบงาน">
                                   <Trash2 size={13} />
                                 </button>
                               </div>
@@ -2215,6 +2292,101 @@ export default function App() {
         </div>
       )}
 
+      {/* Note Detail & Edit Modal: เปิดดูข้อความเต็ม คัดลอก แก้ไข หรือลบ */}
+      {editingNote && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-lg w-full space-y-3.5 shadow-2xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-[#262933] pb-2 shrink-0">
+              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <FileText size={15} className="text-red-500" />
+                <span>รายละเอียดบันทึก</span>
+              </h4>
+              <button onClick={() => setEditingNote(null)} className="text-[#8e94a4] hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs overflow-y-auto flex-1 pr-1">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[#8e94a4] block mb-1">วันที่</label>
+                  <input 
+                    type="date" 
+                    value={editingNote.date || ''}
+                    onChange={(e) => setEditingNote({ ...editingNote, date: e.target.value })}
+                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-[#8e94a4] block mb-1">หัวข้อ</label>
+                  <input 
+                    type="text" 
+                    value={editingNote.title}
+                    onChange={(e) => setEditingNote({ ...editingNote, title: e.target.value })}
+                    className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[#8e94a4] block">ข้อความทั้งหมด:</label>
+                  <button 
+                    onClick={() => handleCopyNote(editingNote.content, 'modal-view')}
+                    className="text-[11px] text-red-400 hover:text-red-300 inline-flex items-center gap-1 font-bold"
+                  >
+                    {copiedNoteId === 'modal-view' ? (
+                      <>
+                        <Check size={12} className="text-emerald-400" />
+                        <span className="text-emerald-400">คัดลอกสำเร็จ!</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} />
+                        <span>คัดลอกทั้งหมด</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <textarea 
+                  rows={9}
+                  value={editingNote.content}
+                  onChange={(e) => setEditingNote({ ...editingNote, content: e.target.value })}
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-xl p-3 text-xs text-white placeholder-[#555a66] font-mono leading-relaxed focus:border-red-500 focus:outline-none"
+                  placeholder="พิมพ์หรือแก้ไขข้อความที่นี่..."
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 border-t border-[#262933] shrink-0">
+              <button 
+                onClick={() => {
+                  const target = editingNote;
+                  setEditingNote(null);
+                  handleDeleteNote(target.id, target.title);
+                }} 
+                className="p-2.5 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl transition"
+                title="ลบบันทึกนี้"
+              >
+                <Trash2 size={15} />
+              </button>
+              <button 
+                onClick={() => setEditingNote(null)} 
+                className="flex-1 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] font-bold py-2.5 rounded-xl text-xs transition"
+              >
+                ปิด
+              </button>
+              <button 
+                onClick={handleSaveEditNote} 
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs transition shadow-md"
+              >
+                บันทึกการแก้ไข
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Unified Custom Modal */}
       {dialogState && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2334,4 +2506,8 @@ function dStrActive(target: string, start: string, end: string): boolean {
   const s = start || end;
   const e = end || start;
   return target >= s && target <= e;
+}
+
+function jobTitle(title: string): string {
+  return title || 'รายการนี้';
 }
