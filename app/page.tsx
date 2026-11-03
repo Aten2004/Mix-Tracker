@@ -2506,4 +2506,4 @@ function dStrActive(target: string, start: string, end: string): boolean {
 
 function jobTitle(title: string): string {
   return title || 'รายการนี้';
-}
+} 
