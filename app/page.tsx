@@ -1164,9 +1164,6 @@ export default function App() {
             </button>
 
             <div className="flex items-center gap-1.5 shrink-0">
-              <span className="text-[10px] text-[#6b7280] hidden sm:inline">
-                {isNotesCollapsed ? 'กางออก' : 'พับเก็บ'}
-              </span>
               <button 
                 onClick={toggleNotesCollapse}
                 className="p-1.5 text-[#8e94a4] hover:text-white rounded-lg bg-[#181a22] border border-[#262933] transition"
@@ -1181,7 +1178,6 @@ export default function App() {
             <div className="pt-2 border-t border-[#1c1f28]">
               {filteredNotes.length > 0 ? (
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                  <span className="text-[10px] text-[#6b7280] shrink-0 font-medium">บันทึกด่วน:</span>
                   {filteredNotes.map(n => {
                     const urlMatch = n.content.match(/(https?:\/\/[^\s]+)/);
                     if (urlMatch) {
