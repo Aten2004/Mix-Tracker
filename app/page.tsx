@@ -750,7 +750,7 @@ export default function App() {
     const totalGrossVal = sumTotal * 15;
     const totalNetVal = totalGrossVal * 0.97;
 
-    const output = `${lines.join('\n')}\n\nผลรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGrossVal.toLocaleString()}\nยอดสุทธิ: ฿${totalNetVal.toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท`;
+    const output = `${lines.join('\n')}\n\nผลรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGrossVal.toLocaleString()}\nยอดสุทธิ: ฿${totalNetVal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
     
     navigator.clipboard.writeText(output);
     setDialogState({
@@ -997,7 +997,10 @@ export default function App() {
               <DollarSign size={16} className="text-red-500 shrink-0" /> ยอดสุทธิ (หัก 3%)
             </span>
             <p className="text-2xl xs:text-3xl sm:text-4xl font-black text-red-500 mt-2 truncate">
-              ฿{currentNet.toLocaleString('th-TH', { maximumFractionDigits: 0 })}
+              ฿{currentNet.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).split('.')[0]}
+              <span className="text-sm xs:text-base sm:text-lg font-bold opacity-80 ml-0.5">
+                .{currentNet.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).split('.')[1]}
+              </span>
             </p>
             <p className="text-[10px] sm:text-xs text-[#8e94a4] mt-1 truncate">
               รวม ฿{currentGross.toLocaleString()} | ภาษี ฿{currentTax.toLocaleString()}
