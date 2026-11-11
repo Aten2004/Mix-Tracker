@@ -1352,8 +1352,11 @@ export default function App() {
                         } p-2.5 rounded-xl flex items-start text-xs gap-2 transition group`}
                       >
                         {/* ไอคอนสำหรับลากเปลี่ยนลำดับ และปุ่มเลื่อนขึ้น/ลงสำหรับจอมือถือ */}
-                        <div className="flex flex-col items-center justify-center pt-0.5 text-[#555a66] group-hover:text-[#8e94a4] cursor-grab active:cursor-grabbing select-none shrink-0">
-                          <GripVertical size={16} title="คลิกลากขึ้นลงเพื่อเปลี่ยนลำดับ" />
+                        <div 
+                            title="คลิกลากขึ้นลงเพื่อเปลี่ยนลำดับ"
+                            className="flex flex-col items-center justify-center pt-0.5 text-[#555a66] group-hover:text-[#8e94a4] cursor-grab active:cursor-grabbing select-none shrink-0"
+                          >
+                            <GripVertical size={16} />
                           <div className="flex flex-col gap-0.5 mt-1 sm:hidden">
                             <button 
                               type="button"
