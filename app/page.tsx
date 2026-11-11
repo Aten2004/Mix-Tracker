@@ -34,7 +34,8 @@ import {
   Archive, 
   ArrowUpRight, 
   Search,
-  Settings
+  Settings,
+  GripVertical
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -233,6 +234,9 @@ export default function App() {
   const [noteDate, setNoteDate] = useState('');
   const [noteTitle, setNoteTitle] = useState('');
   const [noteContent, setNoteContent] = useState('');
+
+  // State สำหรับจัดการ Drag & Drop โน้ต
+  const [draggedNoteIndex, setDraggedNoteIndex] = useState<number | null>(null);
 
   // State สำหรับจัดการ Note: คัดลอก และเปิดดู/แก้ไขแบบเต็ม
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null);
@@ -659,6 +663,48 @@ export default function App() {
     }
   };
 
+  // Drag and Drop & Reorder Note Handlers
+  const saveNoteOrder = (reorderedNotes: NoteItem[]) => {
+    const orderIds = reorderedNotes.map(n => n.id);
+    localStorage.setItem(`mix_notes_order_${selectedWs}`, JSON.stringify(orderIds));
+    setNotes(prev => {
+      const otherWsNotes = prev.filter(n => n.workspace !== selectedWs);
+      return [...reorderedNotes, ...otherWsNotes];
+    });
+  };
+
+  const handleNoteDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedNoteIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleNoteDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleNoteDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedNoteIndex === null || draggedNoteIndex === targetIndex) {
+      setDraggedNoteIndex(null);
+      return;
+    }
+    const updated = [...filteredNotes];
+    const [movedItem] = updated.splice(draggedNoteIndex, 1);
+    updated.splice(targetIndex, 0, movedItem);
+    setDraggedNoteIndex(null);
+    saveNoteOrder(updated);
+  };
+
+  const moveNotePosition = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= filteredNotes.length) return;
+    const updated = [...filteredNotes];
+    const [movedItem] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, movedItem);
+    saveNoteOrder(updated);
+  };
+
   const handleAddNote = async () => {
     if (!noteContent.trim() && !noteTitle.trim()) return;
     const finalTitle = noteTitle.trim() || noteContent.trim().split('\n')[0].slice(0, 35) || 'บันทึกข้อความ';
@@ -674,6 +720,14 @@ export default function App() {
     if (!error) {
       setNoteTitle('');
       setNoteContent('');
+      try {
+        const savedOrderStr = localStorage.getItem(`mix_notes_order_${selectedWs}`);
+        const currentOrder: string[] = savedOrderStr ? JSON.parse(savedOrderStr) : [];
+        const newOrder = [newNote.id, ...currentOrder.filter(id => id !== newNote.id)];
+        localStorage.setItem(`mix_notes_order_${selectedWs}`, JSON.stringify(newOrder));
+      } catch (e) {
+        console.error(e);
+      }
       fetchData();
     }
   };
@@ -686,6 +740,16 @@ export default function App() {
       confirmText: 'ลบบันทึก',
       onConfirm: async () => {
         setNotes(prev => prev.filter(n => n.id !== id));
+        try {
+          const savedOrderStr = localStorage.getItem(`mix_notes_order_${selectedWs}`);
+          if (savedOrderStr) {
+            const currentOrder: string[] = JSON.parse(savedOrderStr);
+            const newOrder = currentOrder.filter(noteId => noteId !== id);
+            localStorage.setItem(`mix_notes_order_${selectedWs}`, JSON.stringify(newOrder));
+          }
+        } catch (e) {
+          console.error(e);
+        }
         await supabase.from('notes').delete().eq('id', id);
       }
     });
@@ -701,7 +765,29 @@ export default function App() {
   };
 
   const filteredJobs = useMemo(() => jobs.filter(j => j.workspace === selectedWs), [jobs, selectedWs]);
-  const filteredNotes = useMemo(() => notes.filter(n => n.workspace === selectedWs), [notes, selectedWs]);
+  
+  // เรียงลำดับโน้ตตามลำดับที่บันทึกไว้ใน localStorage
+  const filteredNotes = useMemo(() => {
+    const list = notes.filter(n => n.workspace === selectedWs);
+    try {
+      const savedOrderStr = localStorage.getItem(`mix_notes_order_${selectedWs}`);
+      if (savedOrderStr) {
+        const savedOrder: string[] = JSON.parse(savedOrderStr);
+        return [...list].sort((a, b) => {
+          const idxA = savedOrder.indexOf(a.id);
+          const idxB = savedOrder.indexOf(b.id);
+          if (idxA === -1 && idxB === -1) return 0;
+          if (idxA === -1) return 1;
+          if (idxB === -1) return -1;
+          return idxA - idxB;
+        });
+      }
+    } catch {
+      // fallback
+    }
+    return list;
+  }, [notes, selectedWs]);
+
   const filteredCycles = useMemo(() => billingCycles.filter(b => b.workspace === selectedWs), [billingCycles, selectedWs]);
 
   const pendingJobs = useMemo(() => filteredJobs.filter(j => j.status === 'pending'), [filteredJobs]);
@@ -1152,7 +1238,7 @@ export default function App() {
           )}
         </section>
 
-        {/* 3. ช่องโน้ต (ปรับให้รองรับข้อความยาว คัดลอกได้ทันที และแตะเพื่อดู/แก้ไขตัวเต็ม) */}
+        {/* 3. ช่องโน้ต (เพิ่มระบบลากสลับลำดับ Drag & Drop) */}
         <section className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 transition-all duration-300 space-y-3">
           <div className="flex items-center justify-between gap-2">
             <button 
@@ -1250,13 +1336,46 @@ export default function App() {
 
               {filteredNotes.length > 0 && (
                 <div className="space-y-2 pt-1 max-h-56 overflow-y-auto pr-1">
-                  {filteredNotes.map(n => {
+                  {filteredNotes.map((n, idx) => {
                     const isCopied = copiedNoteId === n.id;
+                    const isDragging = draggedNoteIndex === idx;
                     return (
                       <div 
                         key={n.id} 
-                        className="bg-[#181a22] hover:bg-[#1b1e28] border border-[#262933] p-2.5 rounded-xl flex justify-between items-start text-xs gap-2 transition group"
+                        draggable
+                        onDragStart={(e) => handleNoteDragStart(e, idx)}
+                        onDragOver={handleNoteDragOver}
+                        onDrop={(e) => handleNoteDrop(e, idx)}
+                        onDragEnd={() => setDraggedNoteIndex(null)}
+                        className={`bg-[#181a22] hover:bg-[#1b1e28] border ${
+                          isDragging ? 'opacity-40 border-red-500 border-dashed scale-[0.99]' : 'border-[#262933]'
+                        } p-2.5 rounded-xl flex items-start text-xs gap-2 transition group`}
                       >
+                        {/* ไอคอนสำหรับลากเปลี่ยนลำดับ และปุ่มเลื่อนขึ้น/ลงสำหรับจอมือถือ */}
+                        <div className="flex flex-col items-center justify-center pt-0.5 text-[#555a66] group-hover:text-[#8e94a4] cursor-grab active:cursor-grabbing select-none shrink-0">
+                          <GripVertical size={16} title="คลิกลากขึ้นลงเพื่อเปลี่ยนลำดับ" />
+                          <div className="flex flex-col gap-0.5 mt-1 sm:hidden">
+                            <button 
+                              type="button"
+                              disabled={idx === 0}
+                              onClick={(e) => { e.stopPropagation(); moveNotePosition(idx, 'up'); }}
+                              className="p-0.5 hover:text-white disabled:opacity-20 text-[#8e94a4]"
+                              title="เลื่อนขึ้น"
+                            >
+                              <ChevronUp size={11} />
+                            </button>
+                            <button 
+                              type="button"
+                              disabled={idx === filteredNotes.length - 1}
+                              onClick={(e) => { e.stopPropagation(); moveNotePosition(idx, 'down'); }}
+                              className="p-0.5 hover:text-white disabled:opacity-20 text-[#8e94a4]"
+                              title="เลื่อนลง"
+                            >
+                              <ChevronDown size={11} />
+                            </button>
+                          </div>
+                        </div>
+
                         <div 
                           onClick={() => setEditingNote(n)}
                           className="space-y-1 min-w-0 flex-1 cursor-pointer"
@@ -2509,4 +2628,4 @@ function dStrActive(target: string, start: string, end: string): boolean {
 
 function jobTitle(title: string): string {
   return title || 'รายการนี้';
-} 
+}
