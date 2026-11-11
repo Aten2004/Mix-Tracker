@@ -147,7 +147,7 @@ function parseFlexibleJobInput(text1: string, text2: string) {
   }
 
   const allTokens = combined
-    .replace(/(https?:\/\/[^\s]+)/g)
+    .replace(/(https?:\/\/[^\s]+)/g, '')
     .split(/\t+|\s+/)
     .map(t => t.trim())
     .filter(Boolean);
@@ -2200,7 +2200,7 @@ export default function App() {
                   onChange={(e) => {
                     const val = e.target.value;
                     const tokens = val
-                      .replace(/(https?:\/\/[^\s]+)/g)
+                      .replace(/(https?:\/\/[^\s]+)/g, '')
                       .split(/\t+|\s+/)
                       .map(t => t.trim())
                       .filter(Boolean);
