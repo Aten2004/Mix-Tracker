@@ -2541,12 +2541,12 @@ export default function App() {
         const simRawRemainingMins = Math.max(0, totalMinsNeeded - simNewTotalMins);
         const simOverMoney = Math.max(0, simNewNet - monthlyTarget);
 
-        // คำนวณจำนวนเรื่องโดยอ้างอิงค่าที่ตั้งไว้ในหน้าหลัก (หักออก 1 เรื่องเมื่อกรอกนาทีเรื่องถัดไป)
+        // คำนวณจำนวนเรื่องโดยอ้างอิงค่าที่ตั้งไว้ในหน้าหลักตามตรง
         const simAutoMoviesEst = simRawRemainingMins > 0
           ? Math.ceil(simRawRemainingMins / standardMovieLength)
           : 0;
         const simInheritedMoviesEst = customMoviesCount && customMoviesCount > 0
-          ? (simMins > 0 ? Math.max(1, customMoviesCount - 1) : customMoviesCount)
+          ? customMoviesCount
           : simAutoMoviesEst;
         const simMoviesEst = simRawRemainingMins > 0
           ? (simCustomMoviesCount !== null ? simCustomMoviesCount : simInheritedMoviesEst)
