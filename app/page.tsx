@@ -228,6 +228,9 @@ export default function App() {
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [targetInput, setTargetInput] = useState('14700');
   const [customMoviesCount, setCustomMoviesCount] = useState<number | null>(null);
+  const [isSimModalOpen, setIsSimModalOpen] = useState(false);
+  const [simMinutesInput, setSimMinutesInput] = useState('');
+  const [simCustomMoviesCount, setSimCustomMoviesCount] = useState<number | null>(null);
 
   const [quickInput, setQuickInput] = useState('');
   const [sheetPaste, setSheetPaste] = useState('');
@@ -1176,7 +1179,22 @@ export default function App() {
                   )}
                 </div>
                 <div>
-                  <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[#8e94a4] text-[11px] truncate">ประมาณจำนวนเรื่อง:</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSimMinutesInput('');
+                        setSimCustomMoviesCount(null);
+                        setIsSimModalOpen(true);
+                      }}
+                      className="text-[10px] bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-500/40 px-1.5 py-0.5 rounded-md transition inline-flex items-center gap-1 shrink-0 font-medium"
+                      title="จำลองคำนวณนาทีเรื่องถัดไป"
+                    >
+                      <Calculator size={10} className="shrink-0" />
+                      <span>จำลอง</span>
+                    </button>
+                  </div>
                   {remainingMinsNeeded > 0 ? (
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="font-mono font-bold text-white text-xs sm:text-sm truncate">
@@ -2510,6 +2528,184 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Simulation Modal: จำลองนาทีเรื่องถัดไป (ชั่วคราว ไม่บันทึกข้อมูล) */}
+      {isSimModalOpen && (() => {
+        const simMins = Math.max(0, parseFloat(simMinutesInput) || 0);
+        const simAddedNet = simMins * netRatePerMin;
+        const simNewTotalMins = currentTotalMins + simMins;
+        const simNewNet = currentNet + simAddedNet;
+        const simNewPercent = monthlyTarget > 0
+          ? Math.min(100, Math.round((simNewNet / monthlyTarget) * 100))
+          : 100;
+        const simRawRemainingMins = Math.max(0, totalMinsNeeded - simNewTotalMins);
+        const simOverMoney = Math.max(0, simNewNet - monthlyTarget);
+
+        // คำนวณจำนวนเรื่องโดยอ้างอิงค่าที่ตั้งไว้ในหน้าหลัก (หักออก 1 เรื่องเมื่อกรอกนาทีเรื่องถัดไป)
+        const simAutoMoviesEst = simRawRemainingMins > 0
+          ? Math.ceil(simRawRemainingMins / standardMovieLength)
+          : 0;
+        const simInheritedMoviesEst = customMoviesCount && customMoviesCount > 0
+          ? (simMins > 0 ? Math.max(1, customMoviesCount - 1) : customMoviesCount)
+          : simAutoMoviesEst;
+        const simMoviesEst = simRawRemainingMins > 0
+          ? (simCustomMoviesCount !== null ? simCustomMoviesCount : simInheritedMoviesEst)
+          : 0;
+        const simAvgMinsPerMovie = simMoviesEst > 0
+          ? Math.ceil(simRawRemainingMins / simMoviesEst) + 1
+          : 0;
+        const simRemainingMinsNeeded = simMoviesEst * simAvgMinsPerMovie;
+        const simRemainingMoney = Math.round(simRemainingMinsNeeded * netRatePerMin);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-[#12141a] border border-red-500/50 rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl">
+              <div className="flex justify-between items-center border-b border-[#262933] pb-2.5">
+                <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                  <Calculator size={15} className="text-red-500" />
+                  <span>จำลองนาทีเรื่องถัดไป</span>
+                </h4>
+                <button
+                  onClick={() => setIsSimModalOpen(false)}
+                  className="text-[#8e94a4] hover:text-white"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-[#8e94a4] block mb-1.5">
+                    กรอกจำนวนนาทีของเรื่องถัดไป:
+                  </label>
+                  <div className="flex items-center bg-[#0a0b0e] border border-red-500/40 rounded-xl px-3 py-2 focus-within:border-red-500">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={simMinutesInput}
+                      onChange={(e) => setSimMinutesInput(e.target.value)}
+                      placeholder="เช่น 75 หรือ 80"
+                      className="w-full bg-transparent text-base font-mono font-bold text-white placeholder-[#454954] focus:outline-none"
+                      autoFocus
+                    />
+                    <span className="text-[#8e94a4] font-medium shrink-0 ml-2">นาที</span>
+                  </div>
+                </div>
+
+                {/* แถบแสดงความคืบหน้าหลังจำลอง */}
+                <div className="bg-[#0a0b0e] border border-[#262933] rounded-xl p-3 space-y-2">
+                  <div className="flex justify-between items-end">
+                    <span className="text-[11px] text-[#8e94a4]">
+                      ยอดสุทธิหลังทำเรื่องนี้:
+                    </span>
+                    <div className="text-right">
+                      <span className="text-xs text-red-400 font-bold">{simNewPercent}%</span>
+                      <span className="text-[10px] text-[#8e94a4] ml-1">
+                        (เดิม {targetPercent}%)
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="w-full bg-[#1c1f28] h-2.5 rounded-full overflow-hidden p-0.5 border border-[#262933]">
+                    <div
+                      className="bg-gradient-to-r from-red-700 to-red-500 h-full rounded-full transition-all duration-300"
+                      style={{ width: `${simNewPercent}%` }}
+                    />
+                  </div>
+
+                  <div className="flex justify-between items-center pt-1">
+                    <span className="font-mono font-black text-white text-sm">
+                      ฿{simNewNet.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <span className="text-[10px] text-[#6b7280] font-normal ml-1">
+                        / ฿{monthlyTarget.toLocaleString()}
+                      </span>
+                    </span>
+                    {simMins > 0 && (
+                      <span className="text-[11px] font-mono font-bold text-emerald-400">
+                        +฿{simAddedNet.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* สรุปส่วนที่เหลือหลังจากทำเรื่องจำลองนี้แล้ว (รูปแบบเดียวกับหน้าหลัก) */}
+                {simRawRemainingMins === 0 ? (
+                  <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3 text-center space-y-1">
+                    <p className="text-sm font-black text-emerald-400">
+                      ถึงเป้าหมายเดือนนี้แล้ว! 🎉
+                    </p>
+                    {simOverMoney > 0 && (
+                      <p className="text-[11px] text-emerald-300/80 font-mono">
+                        (เกินเป้าหมาย +฿{simOverMoney.toLocaleString('th-TH', { maximumFractionDigits: 0 })})
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 grid grid-cols-2 gap-2">
+                    <div>
+                      <span className="text-[#8e94a4] block text-[11px]">นาทีที่ต้องทำเพิ่ม:</span>
+                      <span className="font-mono font-bold text-white text-xs sm:text-sm block mt-0.5 truncate">
+                        {simRemainingMinsNeeded} นาที
+                      </span>
+                      <span className="text-[10px] text-red-400 block mt-0.5 truncate">
+                        (ยังขาดอีก ฿{simRemainingMoney.toLocaleString()})
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="font-mono font-bold text-white text-xs sm:text-sm truncate">
+                          อีกประมาณ {simMoviesEst} เรื่อง
+                        </span>
+                        <div className="flex flex-col bg-[#12141a] border border-[#262933] rounded-md overflow-hidden shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setSimCustomMoviesCount(simMoviesEst + 1)}
+                            className="px-1 py-0.2 hover:bg-[#262a36] text-[#8e94a4] hover:text-white transition leading-none"
+                            title="เพิ่มจำนวนเรื่อง"
+                          >
+                            <ChevronUp size={11} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={simMoviesEst <= 1}
+                            onClick={() => setSimCustomMoviesCount(Math.max(1, simMoviesEst - 1))}
+                            className="px-1 py-0.2 hover:bg-[#262a36] text-[#8e94a4] hover:text-white disabled:opacity-30 transition leading-none border-t border-[#262933]"
+                            title="ลดจำนวนเรื่อง"
+                          >
+                            <ChevronDown size={11} />
+                          </button>
+                        </div>
+                        {simCustomMoviesCount !== null && (
+                          <button
+                            type="button"
+                            onClick={() => setSimCustomMoviesCount(null)}
+                            className="p-0.5 text-[#6b7280] hover:text-red-400 transition shrink-0"
+                            title="รีเซ็ตกลับเป็นค่าเริ่มต้น"
+                          >
+                            <RotateCcw size={11} />
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-[#6b7280] block mt-0.5 truncate">
+                        (เฉลี่ยเรื่องละ ~{simAvgMinsPerMovie} นาที)
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsSimModalOpen(false)}
+                className="w-full bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold py-2.5 rounded-xl text-xs transition border border-[#262933]"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Unified Custom Modal */}
       {dialogState && (
