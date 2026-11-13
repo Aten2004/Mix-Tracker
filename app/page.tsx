@@ -67,6 +67,7 @@ interface CustomDialog {
 interface WorkspaceItem {
   name: string;
   monthly_target: number;
+  target_stories?: number | null;
 }
 
 function isDateLike(str: string): boolean {
@@ -226,6 +227,7 @@ export default function App() {
   const [monthlyTarget, setMonthlyTarget] = useState<number>(14700);
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [targetInput, setTargetInput] = useState('14700');
+  const [customMoviesCount, setCustomMoviesCount] = useState<number | null>(null);
 
   const [quickInput, setQuickInput] = useState('');
   const [sheetPaste, setSheetPaste] = useState('');
@@ -308,6 +310,24 @@ export default function App() {
     }
   };
 
+  const handleUpdateTargetMovies = async (nextCount: number | null) => {
+    setCustomMoviesCount(nextCount);
+    setWorkspaceList(prev =>
+      prev.map(w => (w.name === selectedWs ? { ...w, target_stories: nextCount } : w))
+    );
+
+    if (nextCount === null) {
+      localStorage.removeItem(`mix_target_stories_${selectedWs}`);
+    } else {
+      localStorage.setItem(`mix_target_stories_${selectedWs}`, String(nextCount));
+    }
+
+    await supabase
+      .from('workspaces')
+      .update({ target_stories: nextCount })
+      .eq('name', selectedWs);
+  };
+
   const handleGoToCurrentMonth = () => {
     const now = new Date();
     setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
@@ -318,13 +338,14 @@ export default function App() {
     try {
       const { data: wsData } = await supabase
         .from('workspaces')
-        .select('name, monthly_target')
+        .select('*')
         .order('created_at', { ascending: true });
 
       if (wsData && wsData.length > 0) {
         const wsItems: WorkspaceItem[] = wsData.map(w => ({
           name: w.name,
-          monthly_target: Number(w.monthly_target) || 14700
+          monthly_target: Number(w.monthly_target) || 14700,
+          target_stories: w.target_stories !== undefined && w.target_stories !== null ? Number(w.target_stories) : null
         }));
         setWorkspaceList(wsItems);
         const names = wsItems.map(w => w.name);
@@ -338,6 +359,11 @@ export default function App() {
         if (currentWs) {
           setMonthlyTarget(currentWs.monthly_target);
           setTargetInput(currentWs.monthly_target.toString());
+          const localSaved = localStorage.getItem(`mix_target_stories_${activeName}`);
+          const resolvedStories = currentWs.target_stories !== null && currentWs.target_stories !== undefined
+            ? currentWs.target_stories
+            : (localSaved ? Number(localSaved) : null);
+          setCustomMoviesCount(resolvedStories);
         }
       }
 
@@ -437,10 +463,11 @@ export default function App() {
           const defaultTarget = 14700;
           await supabase.from('workspaces').insert([{ name: trimmed, monthly_target: defaultTarget }]);
           setWorkspaces(prev => [...prev, trimmed]);
-          setWorkspaceList(prev => [...prev, { name: trimmed, monthly_target: defaultTarget }]);
+          setWorkspaceList(prev => [...prev, { name: trimmed, monthly_target: defaultTarget, target_stories: null }]);
           setSelectedWs(trimmed);
           setMonthlyTarget(defaultTarget);
           setTargetInput(defaultTarget.toString());
+          setCustomMoviesCount(null);
           localStorage.setItem('mix_selected_ws', trimmed);
         }
       }
@@ -798,8 +825,11 @@ export default function App() {
 
   // คำนวณจำนวนเรื่องและนาทีเฉลี่ย
   const standardMovieLength = 80;
-  const remainingMoviesEst = rawRemainingMins > 0 
+  const autoMoviesEst = rawRemainingMins > 0 
     ? Math.ceil(rawRemainingMins / standardMovieLength) 
+    : 0;
+  const remainingMoviesEst = rawRemainingMins > 0
+    ? (customMoviesCount && customMoviesCount > 0 ? customMoviesCount : autoMoviesEst)
     : 0;
   const avgRemainingMinsPerMovie = remainingMoviesEst > 0 
     ? Math.ceil(rawRemainingMins / remainingMoviesEst) + 1
@@ -962,6 +992,11 @@ export default function App() {
                           setSelectedWs(ws.name);
                           setMonthlyTarget(ws.monthly_target);
                           setTargetInput(ws.monthly_target.toString());
+                          const localSaved = localStorage.getItem(`mix_target_stories_${ws.name}`);
+                          const resolvedStories = ws.target_stories !== null && ws.target_stories !== undefined
+                            ? ws.target_stories
+                            : (localSaved ? Number(localSaved) : null);
+                          setCustomMoviesCount(resolvedStories);
                           localStorage.setItem('mix_selected_ws', ws.name);
                           setIsWsDropdownOpen(false);
                         }}
@@ -1142,9 +1177,46 @@ export default function App() {
                 </div>
                 <div>
                   <span className="text-[#8e94a4] block text-[11px]">ประมาณจำนวนเรื่อง:</span>
-                  <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
-                    {remainingMinsNeeded > 0 ? `อีกประมาณ ${remainingMoviesEst} เรื่อง` : 'ครบแล้ว! 🎉'}
-                  </span>
+                  {remainingMinsNeeded > 0 ? (
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="font-mono font-bold text-white text-xs sm:text-sm truncate">
+                        อีกประมาณ {remainingMoviesEst} เรื่อง
+                      </span>
+                      <div className="flex flex-col bg-[#12141a] border border-[#262933] rounded-md overflow-hidden shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateTargetMovies(remainingMoviesEst + 1)}
+                          className="px-1 py-0.2 hover:bg-[#262a36] text-[#8e94a4] hover:text-white transition leading-none"
+                          title="เพิ่มจำนวนเรื่อง"
+                        >
+                          <ChevronUp size={11} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={remainingMoviesEst <= 1}
+                          onClick={() => handleUpdateTargetMovies(Math.max(1, remainingMoviesEst - 1))}
+                          className="px-1 py-0.2 hover:bg-[#262a36] text-[#8e94a4] hover:text-white disabled:opacity-30 transition leading-none border-t border-[#262933]"
+                          title="ลดจำนวนเรื่อง"
+                        >
+                          <ChevronDown size={11} />
+                        </button>
+                      </div>
+                      {customMoviesCount !== null && (
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateTargetMovies(null)}
+                          className="p-0.5 text-[#6b7280] hover:text-red-400 transition shrink-0"
+                          title="รีเซ็ตกลับเป็นค่าอัตโนมัติ"
+                        >
+                          <RotateCcw size={11} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="font-mono font-bold text-white text-xs sm:text-sm truncate block">
+                      ครบแล้ว! 🎉
+                    </span>
+                  )}
                   {remainingMinsNeeded > 0 && (
                     <span className="text-[10px] text-[#6b7280] block mt-0.5 truncate">
                       (เฉลี่ยเรื่องละ ~{avgRemainingMinsPerMovie} นาที)
