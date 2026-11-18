@@ -2665,9 +2665,6 @@ export default function App() {
                     if (e.key === 'Enter') handleSaveOnAirUrl();
                   }}
                 />
-                <p className="text-[10px] text-[#6b7280] mt-1">
-                  * เมื่อบันทึกแล้ว ไอคอนทีวีจะเปลี่ยนเป็น <strong className="text-emerald-400">สีเขียว</strong> (คลิกไอคอนทีวีเพื่อเปิดเว็บได้ทันที หรือแก้ไขลิงก์ในหน้าแก้ไขงาน)
-                </p>
               </div>
             </div>
 
