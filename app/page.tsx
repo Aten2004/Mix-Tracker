@@ -335,6 +335,7 @@ export default function App() {
 
   const [tableSearchQuery, setTableSearchQuery] = useState('');
   const [tableOnAirFilter, setTableOnAirFilter] = useState<'all' | 'on_air' | 'not_on_air'>('all');
+  const [tableCategoryFilter, setTableCategoryFilter] = useState<string>('ALL');
 
   const [workspaceList, setWorkspaceList] = useState<WorkspaceItem[]>([]);
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
@@ -621,6 +622,7 @@ export default function App() {
           setTargetInput(defaultTarget.toString());
           setCategoryLabels(initLabels);
           setCustomMoviesCount(null);
+          setTableCategoryFilter('ALL');
           localStorage.setItem('mix_selected_ws', trimmed);
         }
       }
@@ -670,6 +672,7 @@ export default function App() {
         const remaining = workspaces.filter(w => w !== selectedWs);
         setWorkspaces(remaining);
         setSelectedWs(remaining[0]);
+        setTableCategoryFilter('ALL');
         localStorage.setItem('mix_selected_ws', remaining[0]);
         fetchData();
       }
@@ -990,6 +993,18 @@ export default function App() {
   const currentCyclePendingJobs = useMemo(() => pendingJobs, [pendingJobs]);
   const billedJobs = useMemo(() => filteredJobs.filter(j => j.status === 'billed'), [filteredJobs]);
 
+  const tableCategoryOptions = useMemo(() => {
+    const baseList = tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs;
+    const counts: Record<string, number> = {};
+    baseList.forEach(j => {
+      const code = extractJobCategory(j.title);
+      counts[code] = (counts[code] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .map(([code, count]) => ({ code, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [tableSubView, billedJobs, currentCyclePendingJobs]);
+
   const searchedCurrentJobs = useMemo(() => {
     return currentCyclePendingJobs.filter(j => {
       const matchesOnAir =
@@ -1000,10 +1015,15 @@ export default function App() {
             : !j.on_air_url;
       if (!matchesOnAir) return false;
 
+      const jobCat = extractJobCategory(j.title);
+      if (tableCategoryFilter !== 'ALL' && jobCat !== tableCategoryFilter) {
+        return false;
+      }
+
       if (!tableSearchQuery.trim()) return true;
       const q = tableSearchQuery.trim().toLowerCase();
-      const catCode = extractJobCategory(j.title).toLowerCase();
-      const catLabel = (categoryLabels[extractJobCategory(j.title)] || '').toLowerCase();
+      const catCode = jobCat.toLowerCase();
+      const catLabel = (categoryLabels[jobCat] || '').toLowerCase();
       return (
         j.title.toLowerCase().includes(q) ||
         j.episode.toLowerCase().includes(q) ||
@@ -1011,7 +1031,7 @@ export default function App() {
         catLabel.includes(q)
       );
     });
-  }, [currentCyclePendingJobs, tableSearchQuery, tableOnAirFilter, categoryLabels]);
+  }, [currentCyclePendingJobs, tableSearchQuery, tableOnAirFilter, tableCategoryFilter, categoryLabels]);
 
   const searchedBilledJobs = useMemo(() => {
     return billedJobs.filter(j => {
@@ -1023,10 +1043,15 @@ export default function App() {
             : !j.on_air_url;
       if (!matchesOnAir) return false;
 
+      const jobCat = extractJobCategory(j.title);
+      if (tableCategoryFilter !== 'ALL' && jobCat !== tableCategoryFilter) {
+        return false;
+      }
+
       if (!tableSearchQuery.trim()) return true;
       const q = tableSearchQuery.trim().toLowerCase();
-      const catCode = extractJobCategory(j.title).toLowerCase();
-      const catLabel = (categoryLabels[extractJobCategory(j.title)] || '').toLowerCase();
+      const catCode = jobCat.toLowerCase();
+      const catLabel = (categoryLabels[jobCat] || '').toLowerCase();
       return (
         j.title.toLowerCase().includes(q) ||
         j.episode.toLowerCase().includes(q) ||
@@ -1034,17 +1059,19 @@ export default function App() {
         catLabel.includes(q)
       );
     });
-  }, [billedJobs, tableSearchQuery, tableOnAirFilter, categoryLabels]);
+  }, [billedJobs, tableSearchQuery, tableOnAirFilter, tableCategoryFilter, categoryLabels]);
 
   const tableOnAirCounts = useMemo(() => {
-    const baseList = tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs;
+    const baseList = (tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs).filter(j =>
+      tableCategoryFilter === 'ALL' ? true : extractJobCategory(j.title) === tableCategoryFilter
+    );
     const onAir = baseList.filter(j => Boolean(j.on_air_url)).length;
     return {
       all: baseList.length,
       onAir,
       notOnAir: baseList.length - onAir
     };
-  }, [tableSubView, billedJobs, currentCyclePendingJobs]);
+  }, [tableSubView, billedJobs, currentCyclePendingJobs, tableCategoryFilter]);
 
   const activeBilledJobs = useMemo(() => currentCyclePendingJobs.filter(j => j.isIncludedInBilling), [currentCyclePendingJobs]);
 
@@ -1102,37 +1129,82 @@ export default function App() {
   const remainingMoneyNeeded = Math.round(remainingMinsNeeded * netRatePerMin);
 
   const analyticsData = useMemo(() => {
-    const catMap: Record<string, { code: string; mins: number; count: number; onAirCount: number }> = {};
+    const shortMonths = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+    const catMap: Record<string, { code: string; mins: number; count: number; onAirCount: number; netIncome: number }> = {};
+    const monthMap: Record<string, { key: string; label: string; mins: number; count: number; netIncome: number }> = {};
     let periodEarly = 0;
+    let periodEarlyCount = 0;
     let periodMid = 0;
+    let periodMidCount = 0;
     let periodLate = 0;
+    let periodLateCount = 0;
     let totalOnAirCount = 0;
+    let billedMins = 0;
 
     filteredJobs.forEach(j => {
       const code = extractJobCategory(j.title);
       const m = Number(j.minutes) || 0;
+      const net = m * 15 * 0.97;
       const isOnAir = Boolean(j.on_air_url);
       if (isOnAir) totalOnAirCount += 1;
+      if (j.status === 'billed') billedMins += m;
 
       if (!catMap[code]) {
-        catMap[code] = { code, mins: 0, count: 0, onAirCount: 0 };
+        catMap[code] = { code, mins: 0, count: 0, onAirCount: 0, netIncome: 0 };
       }
       catMap[code].mins += m;
       catMap[code].count += 1;
+      catMap[code].netIncome += net;
       if (isOnAir) catMap[code].onAirCount += 1;
 
       const dateRef = j.date_mix || j.date_deadline || j.date_glao;
       if (dateRef) {
         const parts = dateRef.split('-');
+        if (parts.length >= 2) {
+          const yShort = parts[0].slice(-2);
+          const mIdx = parseInt(parts[1], 10) - 1;
+          const mKey = `${parts[0]}-${parts[1]}`;
+          if (mIdx >= 0 && mIdx < 12) {
+            if (!monthMap[mKey]) {
+              monthMap[mKey] = {
+                key: mKey,
+                label: `${shortMonths[mIdx]} ${yShort}`,
+                mins: 0,
+                count: 0,
+                netIncome: 0
+              };
+            }
+            monthMap[mKey].mins += m;
+            monthMap[mKey].count += 1;
+            monthMap[mKey].netIncome += net;
+          }
+        }
         const day = parseInt(parts[2], 10);
-        if (day >= 1 && day <= 10) periodEarly += m;
-        else if (day >= 11 && day <= 20) periodMid += m;
-        else if (day >= 21) periodLate += m;
+        if (day >= 1 && day <= 10) {
+          periodEarly += m;
+          periodEarlyCount += 1;
+        } else if (day >= 11 && day <= 20) {
+          periodMid += m;
+          periodMidCount += 1;
+        } else if (day >= 21) {
+          periodLate += m;
+          periodLateCount += 1;
+        }
       }
     });
 
     const categoryBreakdown = Object.values(catMap).sort((a, b) => b.mins - a.mins);
     const totalAllMins = categoryBreakdown.reduce((acc, item) => acc + item.mins, 0);
+    const totalAllNet = totalAllMins * 15 * 0.97;
+    const totalJobsCount = filteredJobs.length;
+    const avgMinsPerJob = totalJobsCount > 0 ? Math.round(totalAllMins / totalJobsCount) : 0;
+    const avgNetPerJob = totalJobsCount > 0 ? Math.round(totalAllNet / totalJobsCount) : 0;
+    const onAirPercent = totalJobsCount > 0 ? Math.round((totalOnAirCount / totalJobsCount) * 100) : 0;
+
+    const monthlyTrend = Object.values(monthMap)
+      .sort((a, b) => b.key.localeCompare(a.key))
+      .slice(0, 6);
+    const maxMonthNet = Math.max(monthlyTarget, ...monthlyTrend.map(m => m.netIncome), 1);
 
     const topCat = categoryBreakdown[0];
     const mostWorkedType = topCat
@@ -1150,15 +1222,26 @@ export default function App() {
     return {
       categoryBreakdown,
       totalAllMins,
+      totalAllNet,
+      billedMins,
+      totalJobsCount,
+      avgMinsPerJob,
+      avgNetPerJob,
       totalOnAirCount,
+      onAirPercent,
+      monthlyTrend,
+      maxMonthNet,
       mostWorkedType,
       periodEarly,
+      periodEarlyCount,
       periodMid,
+      periodMidCount,
       periodLate,
+      periodLateCount,
       maxPeriodMins,
       mostActivePeriodName
     };
-  }, [filteredJobs, categoryLabels]);
+  }, [filteredJobs, categoryLabels, monthlyTarget]);
 
   const handleCloseBillingCycle = () => {
     if (activeBilledJobs.length === 0) {
@@ -1264,6 +1347,7 @@ export default function App() {
                             ? ws.target_stories
                             : (localSaved ? Number(localSaved) : null);
                           setCustomMoviesCount(resolvedStories);
+                          setTableCategoryFilter('ALL');
                           localStorage.setItem('mix_selected_ws', ws.name);
                           setIsWsDropdownOpen(false);
                         }}
@@ -2125,22 +2209,49 @@ export default function App() {
                   )}
                 </div>
 
-                {/* ตัวกรองสถานะออนแอร์ */}
+                {/* ตัวกรองรหัสประเภทเรื่อง + สถานะออนแอร์ (เรียงติดกันไม่มีเส้นคั่น) */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
                   <button
                     type="button"
-                    onClick={() => setTableOnAirFilter('all')}
+                    onClick={() => {
+                      setTableCategoryFilter('ALL');
+                      setTableOnAirFilter('all');
+                    }}
                     className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition shrink-0 ${
-                      tableOnAirFilter === 'all'
+                      tableCategoryFilter === 'ALL' && tableOnAirFilter === 'all'
                         ? 'bg-[#1c1f28] text-white border-white/25'
                         : 'bg-[#12141a] text-[#8e94a4] border-[#262933] hover:text-white'
                     }`}
                   >
-                    ทั้งหมด ({tableOnAirCounts.all})
+                    ทั้งหมด ({(tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs).length})
                   </button>
+
+                  {(['GS', 'DW'] as const).map(code => {
+                    const style = getCategoryStyle(code);
+                    const isActive = tableCategoryFilter === code;
+                    const count = (tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs).filter(
+                      j => extractJobCategory(j.title) === code
+                    ).length;
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => setTableCategoryFilter(isActive ? 'ALL' : code)}
+                        className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition shrink-0 ${
+                          isActive
+                            ? style.badge
+                            : 'bg-[#12141a] text-[#8e94a4] border-[#262933] hover:text-white'
+                        }`}
+                        title={categoryLabels[code] || code}
+                      >
+                        {code} ({count})
+                      </button>
+                    );
+                  })}
+
                   <button
                     type="button"
-                    onClick={() => setTableOnAirFilter('on_air')}
+                    onClick={() => setTableOnAirFilter(tableOnAirFilter === 'on_air' ? 'all' : 'on_air')}
                     className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition inline-flex items-center gap-1 shrink-0 ${
                       tableOnAirFilter === 'on_air'
                         ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
@@ -2150,9 +2261,10 @@ export default function App() {
                     <Tv size={11} />
                     <span>ออนแล้ว ({tableOnAirCounts.onAir})</span>
                   </button>
+
                   <button
                     type="button"
-                    onClick={() => setTableOnAirFilter('not_on_air')}
+                    onClick={() => setTableOnAirFilter(tableOnAirFilter === 'not_on_air' ? 'all' : 'not_on_air')}
                     className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition shrink-0 ${
                       tableOnAirFilter === 'not_on_air'
                         ? 'bg-[#1c1f28] text-amber-300 border-amber-500/40'
@@ -2168,14 +2280,14 @@ export default function App() {
             {tableSubView === 'current' && (
               <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3.5">
                 <div className="flex justify-between items-center gap-2">
-                  <div>
-                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider">
+                  <div className="min-w-0">
+                    <h3 className="text-xs font-bold text-red-400 uppercase tracking-wider truncate">
                       งานในรอบนี้ ({searchedCurrentJobs.length} เรื่อง)
                     </h3>
                   </div>
                   <button 
                     onClick={handleCopyAllJobs}
-                    className="text-xs bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold px-3 py-1.5 rounded-xl border border-[#262933] transition flex items-center gap-1.5 shadow-sm"
+                    className="text-xs bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold px-3 py-1.5 rounded-xl border border-[#262933] transition flex items-center gap-1.5 shadow-sm shrink-0 whitespace-nowrap"
                     title="คัดลอกสรุป ชื่อ_ตอน_นาที พร้อมยอดรวม"
                   >
                     <Copy size={13} className="text-red-400" />
@@ -2186,9 +2298,9 @@ export default function App() {
                 <div className="overflow-x-auto pb-2 scrollbar-thin">
                   <table className="w-full text-left text-xs border-collapse min-w-[700px]">
                     <thead>
-                      <tr className="border-b border-[#262933] text-red-400 font-bold bg-[#181a22]">
+                      <tr className="border-b border-[#262933] text-red-400 font-bold bg-[#181a22] whitespace-nowrap">
                         <th className="py-2.5 px-2 text-center w-12">รหัส</th>
-                        <th className="py-2.5 pl-2 pr-1 text-left w-36">ชื่อเรื่อง</th>
+                        <th className="py-2.5 pl-2 pr-1 text-left w-36 whitespace-nowrap">ชื่อเรื่อง</th>
                         <th className="py-2.5 pl-1 pr-2 text-center w-14">ตอน</th>
                         <th className="py-2.5 px-2 text-center w-16">นาที</th>
                         <th className="py-2.5 px-2 text-center w-12">Drive</th>
@@ -2300,7 +2412,7 @@ export default function App() {
                       {searchedCurrentJobs.length === 0 && (
                         <tr>
                           <td colSpan={11} className="p-6 text-center text-[#555a66]">
-                            {tableSearchQuery || tableOnAirFilter !== 'all' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ไม่มีงานค้างในรอบนี้'}
+                            {tableSearchQuery || tableOnAirFilter !== 'all' || tableCategoryFilter !== 'ALL' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ไม่มีงานค้างในรอบนี้'}
                           </td>
                         </tr>
                       )}
@@ -2326,9 +2438,9 @@ export default function App() {
                 <div className="overflow-x-auto pb-2 scrollbar-thin">
                   <table className="w-full text-left text-xs border-collapse min-w-[540px]">
                     <thead>
-                      <tr className="border-b border-[#262933] text-amber-400 font-bold bg-[#181a22]">
+                      <tr className="border-b border-[#262933] text-amber-400 font-bold bg-[#181a22] whitespace-nowrap">
                         <th className="py-2.5 px-2 text-center w-12">รหัส</th>
-                        <th className="py-2.5 pl-2 pr-1 text-left w-24">ชื่อเรื่อง</th>
+                        <th className="py-2.5 pl-2 pr-1 text-left w-28 whitespace-nowrap">ชื่อเรื่อง</th>
                         <th className="py-2.5 pl-1 pr-2 text-center w-12">ตอน</th>
                         <th className="py-2.5 px-2 text-center w-16">นาที</th>
                         <th className="py-2.5 px-2 text-center w-12">Drive</th>
@@ -2353,7 +2465,7 @@ export default function App() {
                                 {catCode}
                               </span>
                             </td>
-                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-24">
+                            <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-28">
                               {j.title}
                             </td>
                             <td className="py-2.5 pl-1 pr-2 text-center whitespace-nowrap w-12">
@@ -2428,7 +2540,7 @@ export default function App() {
                       {searchedBilledJobs.length === 0 && (
                         <tr>
                           <td colSpan={8} className="p-6 text-center text-[#555a66]">
-                            {tableSearchQuery || tableOnAirFilter !== 'all' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ยังไม่มีงานที่ปิดรอบ'}
+                            {tableSearchQuery || tableOnAirFilter !== 'all' || tableCategoryFilter !== 'ALL' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ยังไม่มีงานที่ปิดรอบ'}
                           </td>
                         </tr>
                       )}
@@ -2440,27 +2552,104 @@ export default function App() {
 
             {tableSubView === 'analytics' && (
               <div className="space-y-4">
-                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <TrendingUp size={15} /> สรุปประเภทงานที่ทำมากที่สุด
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
-                      <span className="text-[11px] text-[#8e94a4]">ประเภทหลัก:</span>
-                      <p className="text-base font-black text-white mt-1 truncate">{analyticsData.mostWorkedType}</p>
-                    </div>
-                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
-                      <span className="text-[11px] text-[#8e94a4]">ช่วงวันที่มิกซ์หนักสุด:</span>
-                      <p className="text-xs font-black text-red-400 mt-1 leading-tight">{analyticsData.mostActivePeriodName}</p>
-                    </div>
+                {/* 1. ภาพรวมรายได้และผลงานสะสมทั้งหมด */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-3.5 sm:p-4 space-y-1">
+                    <span className="text-[11px] text-[#8e94a4] flex items-center gap-1">
+                      <DollarSign size={13} className="text-red-400" /> รายได้สุทธิสะสม (หัก 3%)
+                    </span>
+                    <p className="text-xl sm:text-2xl font-black text-red-500 font-mono truncate">
+                      ฿{Math.round(analyticsData.totalAllNet).toLocaleString()}
+                    </p>
+                    <p className="text-[10px] text-[#8e94a4] truncate">
+                      รวม {analyticsData.totalAllMins.toLocaleString()} นาที ({analyticsData.totalJobsCount} เรื่อง)
+                    </p>
+                  </div>
+
+                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-1">
+                    <span className="text-[11px] text-[#8e94a4] flex items-center gap-1">
+                      <Clock size={13} className="text-cyan-400" /> ค่าเฉลี่ยต่อ 1 เรื่อง
+                    </span>
+                    <p className="text-xl sm:text-2xl font-black text-white font-mono truncate">
+                      ~{analyticsData.avgMinsPerJob} <span className="text-xs font-normal text-[#8e94a4]">นาที</span>
+                    </p>
+                    <p className="text-[10px] text-emerald-400 font-semibold truncate">
+                      เฉลี่ย ~฿{analyticsData.avgNetPerJob.toLocaleString()}/เรื่อง
+                    </p>
                   </div>
                 </div>
 
+                {/* 2. สรุปสถิติเด่น (ประเภทหลัก / ออนแอร์ / ช่วงงานชุก) */}
+                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <TrendingUp size={15} /> ภาพรวมการทำงานของทีม
+                  </h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5">
+                      <span className="text-[10px] text-[#8e94a4] block">ค่ายหลัก:</span>
+                      <p className="text-xs sm:text-sm font-black text-white mt-1 truncate">{analyticsData.mostWorkedType}</p>
+                    </div>
+                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5">
+                      <span className="text-[10px] text-[#8e94a4] block">ออนแอร์แล้ว:</span>
+                      <p className="text-xs sm:text-sm font-black text-emerald-400 mt-1 font-mono truncate">
+                        {analyticsData.totalOnAirCount}/{analyticsData.totalJobsCount} <span className="text-[10px] font-normal">({analyticsData.onAirPercent}%)</span>
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* 3. สถิติรายเดือนเทียบเป้าหมาย */}
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-white">สัดส่วนนาทีงานตามประเภท</span>
-                    <span className="text-[11px] text-emerald-400 font-bold">
-                      ออนแล้ว {analyticsData.totalOnAirCount} / {filteredJobs.length} เรื่อง
+                    <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                      <Layers size={14} className="text-red-400" /> ยอดสุทธิรายเดือน (เทียบเป้า ฿{monthlyTarget.toLocaleString()})
+                    </span>
+                  </div>
+                  {analyticsData.monthlyTrend.length > 0 ? (
+                    <div className="space-y-2.5">
+                      {analyticsData.monthlyTrend.map(m => {
+                        const pctBar = Math.min(100, Math.round((m.netIncome / analyticsData.maxMonthNet) * 100));
+                        const hitTarget = m.netIncome >= monthlyTarget && monthlyTarget > 0;
+                        return (
+                          <div key={m.key} className="space-y-1">
+                            <div className="flex justify-between items-center text-xs">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-white font-mono">{m.label}</span>
+                                <span className="text-[10px] text-[#8e94a4]">({m.count} เรื่อง • {m.mins} น.)</span>
+                                {hitTarget && (
+                                  <span className="text-[9px] bg-emerald-950/70 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold">
+                                    ถึงเป้า
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`font-mono font-bold ${hitTarget ? 'text-emerald-400' : 'text-red-400'}`}>
+                                ฿{Math.round(m.netIncome).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="w-full bg-[#1c1f28] h-2 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  hitTarget ? 'bg-emerald-500' : 'bg-gradient-to-r from-red-700 to-red-500'
+                                }`}
+                                style={{ width: `${pctBar}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#555a66]">ไม่มีข้อมูลรายเดือน</p>
+                  )}
+                </div>
+
+                {/* 4. สัดส่วนนาทีและรายได้ตามประเภทค่าย */}
+                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-white">สัดส่วนผลงานแยกตามรหัสค่าย</span>
+                    <span className="text-[11px] text-[#8e94a4] font-mono">
+                      รวม {analyticsData.totalAllMins.toLocaleString()} นาที
                     </span>
                   </div>
                   {analyticsData.totalAllMins > 0 ? (
@@ -2484,22 +2673,33 @@ export default function App() {
                         {analyticsData.categoryBreakdown.map(item => {
                           const style = getCategoryStyle(item.code);
                           const fullLabel = categoryLabels[item.code];
+                          const pct = Math.round((item.mins / analyticsData.totalAllMins) * 100);
+                          const avgCatMins = item.count > 0 ? Math.round(item.mins / item.count) : 0;
                           return (
                             <div
                               key={item.code}
-                              className="bg-[#181a22] border border-[#262933] rounded-xl px-3 py-2 flex items-center justify-between text-xs"
+                              className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5 space-y-1.5 text-xs"
                             >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border shrink-0 ${style.badge}`}>
-                                  {item.code}
-                                </span>
-                                <span className="text-white font-bold truncate">
-                                  {fullLabel || item.code}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border shrink-0 ${style.badge}`}>
+                                    {item.code}
+                                  </span>
+                                  <span className="text-white font-bold truncate">
+                                    {fullLabel || item.code}
+                                  </span>
+                                </div>
+                                <span className={`font-mono font-bold shrink-0 ${style.text}`}>
+                                  {pct}%
                                 </span>
                               </div>
-                              <div className="text-right shrink-0 ml-2 font-mono">
-                                <span className={`font-bold ${style.text}`}>{item.mins} น.</span>
-                                <span className="text-[10px] text-[#8e94a4] ml-1">({item.count} เรื่อง)</span>
+                              <div className="flex justify-between text-[11px] text-[#8e94a4] font-mono pt-1 border-t border-[#262933]/70">
+                                <span>{item.mins} น. ({item.count} เรื่อง)</span>
+                                <span className="text-white font-semibold">฿{Math.round(item.netIncome).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] text-[#6b7280]">
+                                <span>เฉลี่ย ~{avgCatMins} น./เรื่อง</span>
+                                <span className="text-emerald-400/90">ออนแล้ว {item.onAirCount}/{item.count}</span>
                               </div>
                             </div>
                           );
@@ -2510,6 +2710,37 @@ export default function App() {
                     <p className="text-xs text-[#555a66]">ไม่มีข้อมูล</p>
                   )}
                 </div>
+
+                {/* 5. การกระจายงานตามช่วงวันที่ในเดือน */}
+                {analyticsData.maxPeriodMins > 0 && (
+                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-2.5">
+                    <span className="text-xs font-bold text-white block">ปริมาณงานตามช่วงวันที่ (วันมิกซ์)</span>
+                    {[
+                      { label: 'ต้นเดือน (วันที่ 1–10)', mins: analyticsData.periodEarly, count: analyticsData.periodEarlyCount },
+                      { label: 'กลางเดือน (วันที่ 11–20)', mins: analyticsData.periodMid, count: analyticsData.periodMidCount },
+                      { label: 'ปลายเดือน (วันที่ 21–31)', mins: analyticsData.periodLate, count: analyticsData.periodLateCount }
+                    ].map(p => {
+                      const pct = Math.round((p.mins / analyticsData.maxPeriodMins) * 100);
+                      const isPeak = p.mins === analyticsData.maxPeriodMins && p.mins > 0;
+                      return (
+                        <div key={p.label} className="space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className={isPeak ? 'text-amber-300 font-bold' : 'text-[#a6adbb]'}>{p.label}</span>
+                            <span className="font-mono text-white font-semibold">
+                              {p.mins} นาที <span className="text-[10px] text-[#8e94a4]">({p.count} เรื่อง)</span>
+                            </span>
+                          </div>
+                          <div className="w-full bg-[#1c1f28] h-2 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${isPeak ? 'bg-amber-400' : 'bg-red-500/70'}`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
