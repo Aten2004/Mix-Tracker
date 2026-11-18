@@ -34,7 +34,9 @@ import {
   Archive, 
   ArrowUpRight, 
   Search,
-  Settings
+  Settings,
+  Tv,
+  Tag
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { 
@@ -43,6 +45,10 @@ import {
   formatToDisplayDate, 
   isDateString 
 } from '@/lib/parser';
+
+interface ExtendedJobItem extends JobItem {
+  on_air_url?: string;
+}
 
 interface NoteItem {
   id: string;
@@ -68,6 +74,126 @@ interface WorkspaceItem {
   name: string;
   monthly_target: number;
   target_stories?: number | null;
+  category_labels?: Record<string, string>;
+}
+
+const DEFAULT_CATEGORY_LABELS: Record<string, string> = {
+  DW: 'DramaWave',
+  GS: 'GoodShort'
+};
+
+interface CategoryStyle {
+  badge: string;
+  card: string;
+  rowEven: string;
+  rowOdd: string;
+  bar: string;
+  text: string;
+}
+
+const EXTRA_CATEGORY_STYLES: CategoryStyle[] = [
+  {
+    badge: 'bg-purple-400/15 text-purple-300 border-purple-400/40',
+    card: 'bg-gradient-to-b from-[#171122] to-[#110d19] border-purple-500/35 hover:border-purple-500/60',
+    rowEven: 'bg-purple-950/15 hover:bg-purple-900/25',
+    rowOdd: 'bg-purple-950/25 hover:bg-purple-900/35',
+    bar: 'bg-purple-500',
+    text: 'text-purple-400'
+  },
+  {
+    badge: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/40',
+    card: 'bg-gradient-to-b from-[#0e1c16] to-[#0b1511] border-emerald-500/35 hover:border-emerald-500/60',
+    rowEven: 'bg-emerald-950/15 hover:bg-emerald-900/25',
+    rowOdd: 'bg-emerald-950/25 hover:bg-emerald-900/35',
+    bar: 'bg-emerald-500',
+    text: 'text-emerald-400'
+  },
+  {
+    badge: 'bg-pink-400/15 text-pink-300 border-pink-400/40',
+    card: 'bg-gradient-to-b from-[#1f1018] to-[#170c12] border-pink-500/35 hover:border-pink-500/60',
+    rowEven: 'bg-pink-950/15 hover:bg-pink-900/25',
+    rowOdd: 'bg-pink-950/25 hover:bg-pink-900/35',
+    bar: 'bg-pink-500',
+    text: 'text-pink-400'
+  },
+  {
+    badge: 'bg-orange-400/15 text-orange-300 border-orange-400/40',
+    card: 'bg-gradient-to-b from-[#1e140e] to-[#160f0b] border-orange-500/35 hover:border-orange-500/60',
+    rowEven: 'bg-orange-950/15 hover:bg-orange-900/25',
+    rowOdd: 'bg-orange-950/25 hover:bg-orange-900/35',
+    bar: 'bg-orange-500',
+    text: 'text-orange-400'
+  },
+  {
+    badge: 'bg-indigo-400/15 text-indigo-300 border-indigo-400/40',
+    card: 'bg-gradient-to-b from-[#111324] to-[#0d0e1b] border-indigo-500/35 hover:border-indigo-500/60',
+    rowEven: 'bg-indigo-950/15 hover:bg-indigo-900/25',
+    rowOdd: 'bg-indigo-950/25 hover:bg-indigo-900/35',
+    bar: 'bg-indigo-500',
+    text: 'text-indigo-400'
+  }
+];
+
+function extractJobCategory(title: string): string {
+  if (!title) return 'ทั่วไป';
+  const match = title.trim().match(/^([A-Za-z\u0E00-\u0E7F]+)/);
+  return match ? match[1].toUpperCase() : 'ทั่วไป';
+}
+
+function getCategoryStyle(code: string): CategoryStyle {
+  const upper = code.toUpperCase();
+  if (upper === 'DW') {
+    return {
+      badge: 'bg-amber-400/15 text-amber-300 border-amber-400/40',
+      card: 'bg-gradient-to-b from-[#1b1510] to-[#14110e] border-amber-500/35 hover:border-amber-500/60',
+      rowEven: 'bg-amber-950/15 hover:bg-amber-900/25',
+      rowOdd: 'bg-amber-950/25 hover:bg-amber-900/35',
+      bar: 'bg-amber-500',
+      text: 'text-amber-400'
+    };
+  }
+  if (upper === 'GS') {
+    return {
+      badge: 'bg-cyan-400/15 text-cyan-300 border-cyan-400/40',
+      card: 'bg-gradient-to-b from-[#0e1620] to-[#0c1219] border-cyan-500/35 hover:border-cyan-500/60',
+      rowEven: 'bg-cyan-950/10 hover:bg-cyan-900/20',
+      rowOdd: 'bg-cyan-950/20 hover:bg-cyan-900/30',
+      bar: 'bg-cyan-500',
+      text: 'text-cyan-400'
+    };
+  }
+  let hash = 0;
+  for (let i = 0; i < upper.length; i++) {
+    hash = upper.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % EXTRA_CATEGORY_STYLES.length;
+  return EXTRA_CATEGORY_STYLES[index];
+}
+
+function detectKnownPlatform(url: string): string {
+  if (!url) return '';
+  const lower = url.toLowerCase();
+  if (lower.includes('dramawave')) return 'DramaWave';
+  if (lower.includes('goodshort')) return 'GoodShort';
+  if (lower.includes('reelshort')) return 'ReelShort';
+  if (lower.includes('shortmax')) return 'ShortMax';
+  if (lower.includes('flextv')) return 'FlexTV';
+  if (lower.includes('kalos')) return 'KalosTV';
+  if (lower.includes('moboreels')) return 'MoboReels';
+  if (lower.includes('dramabox')) return 'DramaBox';
+  return '';
+}
+
+function detectPlatformDisplay(url: string): string {
+  if (!url) return '';
+  const known = detectKnownPlatform(url);
+  if (known) return known;
+  try {
+    const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
+    return parsed.hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
 }
 
 function isDateLike(str: string): boolean {
@@ -208,13 +334,19 @@ export default function App() {
   const [loading, setLoading] = useState(true);
 
   const [tableSearchQuery, setTableSearchQuery] = useState('');
+  const [tableOnAirFilter, setTableOnAirFilter] = useState<'all' | 'on_air' | 'not_on_air'>('all');
 
   const [workspaceList, setWorkspaceList] = useState<WorkspaceItem[]>([]);
   const [workspaces, setWorkspaces] = useState<string[]>(['ทีมซีรีส์จีน (GS/DW)', 'ทีมสำรอง']);
   const [selectedWs, setSelectedWs] = useState<string>('ทีมซีรีส์จีน (GS/DW)');
   const [isWsDropdownOpen, setIsWsDropdownOpen] = useState(false);
 
-  const [jobs, setJobs] = useState<JobItem[]>([]);
+  const [categoryLabels, setCategoryLabels] = useState<Record<string, string>>(DEFAULT_CATEGORY_LABELS);
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCatCode, setNewCatCode] = useState('');
+  const [newCatName, setNewCatName] = useState('');
+
+  const [jobs, setJobs] = useState<ExtendedJobItem[]>([]);
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [billingCycles, setBillingCycles] = useState<BillingCycle[]>([]);
 
@@ -243,7 +375,9 @@ export default function App() {
   const [editingNote, setEditingNote] = useState<NoteItem | null>(null);
   const [copiedNoteId, setCopiedNoteId] = useState<string | null>(null);
 
-  const [editingJob, setEditingJob] = useState<JobItem | null>(null);
+  const [editingJob, setEditingJob] = useState<ExtendedJobItem | null>(null);
+  const [onAirModalJob, setOnAirModalJob] = useState<ExtendedJobItem | null>(null);
+  const [onAirUrlInput, setOnAirUrlInput] = useState('');
 
   const [currentMonth, setCurrentMonth] = useState<Date>(new Date(2026, 0, 1));
   const [selectedCalDate, setSelectedCalDate] = useState<string>('');
@@ -348,7 +482,10 @@ export default function App() {
         const wsItems: WorkspaceItem[] = wsData.map(w => ({
           name: w.name,
           monthly_target: Number(w.monthly_target) || 14700,
-          target_stories: w.target_stories !== undefined && w.target_stories !== null ? Number(w.target_stories) : null
+          target_stories: w.target_stories !== undefined && w.target_stories !== null ? Number(w.target_stories) : null,
+          category_labels: (w.category_labels && typeof w.category_labels === 'object')
+            ? { ...DEFAULT_CATEGORY_LABELS, ...w.category_labels }
+            : { ...DEFAULT_CATEGORY_LABELS }
         }));
         setWorkspaceList(wsItems);
         const names = wsItems.map(w => w.name);
@@ -362,6 +499,7 @@ export default function App() {
         if (currentWs) {
           setMonthlyTarget(currentWs.monthly_target);
           setTargetInput(currentWs.monthly_target.toString());
+          setCategoryLabels(currentWs.category_labels || DEFAULT_CATEGORY_LABELS);
           const localSaved = localStorage.getItem(`mix_target_stories_${activeName}`);
           const resolvedStories = currentWs.target_stories !== null && currentWs.target_stories !== undefined
             ? currentWs.target_stories
@@ -383,6 +521,7 @@ export default function App() {
           episode: row.episode || '',
           minutes: Number(row.minutes) || 0,
           drive_url: row.drive_url || '',
+          on_air_url: row.on_air_url || '',
           date_glao: row.date_glao || '',
           date_pak: row.date_pak || '',
           date_mix: row.date_mix || '',
@@ -464,12 +603,23 @@ export default function App() {
         if (name && name.trim() && !workspaces.includes(name.trim())) {
           const trimmed = name.trim();
           const defaultTarget = 14700;
-          await supabase.from('workspaces').insert([{ name: trimmed, monthly_target: defaultTarget }]);
+          const initLabels = { ...DEFAULT_CATEGORY_LABELS };
+          await supabase.from('workspaces').insert([{
+            name: trimmed,
+            monthly_target: defaultTarget,
+            category_labels: initLabels
+          }]);
           setWorkspaces(prev => [...prev, trimmed]);
-          setWorkspaceList(prev => [...prev, { name: trimmed, monthly_target: defaultTarget, target_stories: null }]);
+          setWorkspaceList(prev => [...prev, {
+            name: trimmed,
+            monthly_target: defaultTarget,
+            target_stories: null,
+            category_labels: initLabels
+          }]);
           setSelectedWs(trimmed);
           setMonthlyTarget(defaultTarget);
           setTargetInput(defaultTarget.toString());
+          setCategoryLabels(initLabels);
           setCustomMoviesCount(null);
           localStorage.setItem('mix_selected_ws', trimmed);
         }
@@ -526,6 +676,70 @@ export default function App() {
     });
   };
 
+  const handleSaveCategoryLabels = async (nextLabels: Record<string, string>) => {
+    setCategoryLabels(nextLabels);
+    setWorkspaceList(prev =>
+      prev.map(w => (w.name === selectedWs ? { ...w, category_labels: nextLabels } : w))
+    );
+    await supabase
+      .from('workspaces')
+      .update({ category_labels: nextLabels })
+      .eq('name', selectedWs);
+  };
+
+  const handleAddCategoryItem = async () => {
+    const code = newCatCode.trim().toUpperCase();
+    const label = newCatName.trim();
+    if (!code || !label) return;
+    const nextLabels = { ...categoryLabels, [code]: label };
+    setNewCatCode('');
+    setNewCatName('');
+    await handleSaveCategoryLabels(nextLabels);
+  };
+
+  const handleRemoveCategoryItem = async (code: string) => {
+    const nextLabels = { ...categoryLabels };
+    delete nextLabels[code];
+    await handleSaveCategoryLabels(nextLabels);
+  };
+
+  const handleOpenOnAirModal = (job: ExtendedJobItem) => {
+    setOnAirModalJob(job);
+    setOnAirUrlInput(job.on_air_url || '');
+  };
+
+  const handleSaveOnAirUrl = async () => {
+    if (!onAirModalJob) return;
+    const trimmed = onAirUrlInput.trim();
+    const normalizedUrl = trimmed
+      ? (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
+      : '';
+
+    const { error } = await supabase
+      .from('jobs')
+      .update({ on_air_url: normalizedUrl })
+      .eq('id', onAirModalJob.id);
+
+    if (!error) {
+      setJobs(prev =>
+        prev.map(j => (j.id === onAirModalJob.id ? { ...j, on_air_url: normalizedUrl } : j))
+      );
+
+      if (normalizedUrl) {
+        const catCode = extractJobCategory(onAirModalJob.title);
+        const knownPlatform = detectKnownPlatform(normalizedUrl);
+        if (catCode !== 'ทั่วไป' && knownPlatform && !categoryLabels[catCode]) {
+          await handleSaveCategoryLabels({ ...categoryLabels, [catCode]: knownPlatform });
+        }
+      }
+
+      setOnAirModalJob(null);
+      setOnAirUrlInput('');
+    } else {
+      setDialogState({ title: 'เกิดข้อผิดพลาด', desc: error.message, type: 'alert' });
+    }
+  };
+
   const handleAddJob = async () => {
     const parsed = parseFlexibleJobInput(quickInput, sheetPaste);
     let finalTitle = parsed.title;
@@ -558,6 +772,7 @@ export default function App() {
       episode: finalEpisode,
       minutes: finalMinutes,
       drive_url: finalDriveUrl,
+      on_air_url: '',
       ...dates,
       is_included_in_billing: addJobTargetStatus === 'pending',
       status: addJobTargetStatus
@@ -589,11 +804,17 @@ export default function App() {
       desc: `ต้องการบันทึกการแก้ไขของงาน "${editingJob.title}" ใช่หรือไม่?`,
       confirmText: 'บันทึก',
       onConfirm: async () => {
+        const trimmedOnAir = (editingJob.on_air_url || '').trim();
+        const normalizedOnAir = trimmedOnAir
+          ? (/^https?:\/\//i.test(trimmedOnAir) ? trimmedOnAir : `https://${trimmedOnAir}`)
+          : '';
+
         const { error } = await supabase.from('jobs').update({
           title: editingJob.title,
           episode: editingJob.episode,
           minutes: editingJob.minutes,
           drive_url: editingJob.drive_url || '',
+          on_air_url: normalizedOnAir,
           date_glao: editingJob.date_glao || '',
           date_pak: editingJob.date_pak || '',
           date_mix: editingJob.date_mix || '',
@@ -611,7 +832,7 @@ export default function App() {
     });
   };
 
-  const toggleJobBilling = async (job: JobItem) => {
+  const toggleJobBilling = async (job: ExtendedJobItem) => {
     const nextVal = !job.isIncludedInBilling;
     setJobs(jobs.map(j => j.id === job.id ? { ...j, isIncludedInBilling: nextVal } : j));
     await supabase.from('jobs').update({ is_included_in_billing: nextVal }).eq('id', job.id);
@@ -630,7 +851,7 @@ export default function App() {
     });
   };
 
-  const handleMarkJobAsBilled = (job: JobItem) => {
+  const handleMarkJobAsBilled = (job: ExtendedJobItem) => {
     setDialogState({
       type: 'confirm',
       title: 'ย้ายไปงานปิดรอบแล้ว',
@@ -643,7 +864,7 @@ export default function App() {
     });
   };
 
-  const handleReopenJob = (job: JobItem) => {
+  const handleReopenJob = (job: ExtendedJobItem) => {
     setDialogState({
       type: 'confirm',
       title: 'ดึงกลับมารอบปัจจุบัน',
@@ -752,7 +973,7 @@ export default function App() {
     });
   };
 
-  const handleCopyJob = (job: JobItem) => {
+  const handleCopyJob = (job: ExtendedJobItem) => {
     const code = job.episode ? `${job.title}_${job.episode}_${job.minutes}` : `${job.title}_${job.minutes}`;
     navigator.clipboard.writeText(code);
     setCopiedJobId(job.id);
@@ -770,22 +991,60 @@ export default function App() {
   const billedJobs = useMemo(() => filteredJobs.filter(j => j.status === 'billed'), [filteredJobs]);
 
   const searchedCurrentJobs = useMemo(() => {
-    if (!tableSearchQuery.trim()) return currentCyclePendingJobs;
-    const q = tableSearchQuery.trim().toLowerCase();
-    return currentCyclePendingJobs.filter(j => 
-      j.title.toLowerCase().includes(q) || 
-      j.episode.toLowerCase().includes(q)
-    );
-  }, [currentCyclePendingJobs, tableSearchQuery]);
+    return currentCyclePendingJobs.filter(j => {
+      const matchesOnAir =
+        tableOnAirFilter === 'all'
+          ? true
+          : tableOnAirFilter === 'on_air'
+            ? Boolean(j.on_air_url)
+            : !j.on_air_url;
+      if (!matchesOnAir) return false;
+
+      if (!tableSearchQuery.trim()) return true;
+      const q = tableSearchQuery.trim().toLowerCase();
+      const catCode = extractJobCategory(j.title).toLowerCase();
+      const catLabel = (categoryLabels[extractJobCategory(j.title)] || '').toLowerCase();
+      return (
+        j.title.toLowerCase().includes(q) ||
+        j.episode.toLowerCase().includes(q) ||
+        catCode.includes(q) ||
+        catLabel.includes(q)
+      );
+    });
+  }, [currentCyclePendingJobs, tableSearchQuery, tableOnAirFilter, categoryLabels]);
 
   const searchedBilledJobs = useMemo(() => {
-    if (!tableSearchQuery.trim()) return billedJobs;
-    const q = tableSearchQuery.trim().toLowerCase();
-    return billedJobs.filter(j => 
-      j.title.toLowerCase().includes(q) || 
-      j.episode.toLowerCase().includes(q)
-    );
-  }, [billedJobs, tableSearchQuery]);
+    return billedJobs.filter(j => {
+      const matchesOnAir =
+        tableOnAirFilter === 'all'
+          ? true
+          : tableOnAirFilter === 'on_air'
+            ? Boolean(j.on_air_url)
+            : !j.on_air_url;
+      if (!matchesOnAir) return false;
+
+      if (!tableSearchQuery.trim()) return true;
+      const q = tableSearchQuery.trim().toLowerCase();
+      const catCode = extractJobCategory(j.title).toLowerCase();
+      const catLabel = (categoryLabels[extractJobCategory(j.title)] || '').toLowerCase();
+      return (
+        j.title.toLowerCase().includes(q) ||
+        j.episode.toLowerCase().includes(q) ||
+        catCode.includes(q) ||
+        catLabel.includes(q)
+      );
+    });
+  }, [billedJobs, tableSearchQuery, tableOnAirFilter, categoryLabels]);
+
+  const tableOnAirCounts = useMemo(() => {
+    const baseList = tableSubView === 'billed' ? billedJobs : currentCyclePendingJobs;
+    const onAir = baseList.filter(j => Boolean(j.on_air_url)).length;
+    return {
+      all: baseList.length,
+      onAir,
+      notOnAir: baseList.length - onAir
+    };
+  }, [tableSubView, billedJobs, currentCyclePendingJobs]);
 
   const activeBilledJobs = useMemo(() => currentCyclePendingJobs.filter(j => j.isIncludedInBilling), [currentCyclePendingJobs]);
 
@@ -843,24 +1102,24 @@ export default function App() {
   const remainingMoneyNeeded = Math.round(remainingMinsNeeded * netRatePerMin);
 
   const analyticsData = useMemo(() => {
-    let gsMins = 0;
-    let gsCount = 0;
-    let dwMins = 0;
-    let dwCount = 0;
+    const catMap: Record<string, { code: string; mins: number; count: number; onAirCount: number }> = {};
     let periodEarly = 0;
     let periodMid = 0;
     let periodLate = 0;
+    let totalOnAirCount = 0;
 
     filteredJobs.forEach(j => {
-      const isDW = j.title.toUpperCase().startsWith('DW');
+      const code = extractJobCategory(j.title);
       const m = Number(j.minutes) || 0;
-      if (isDW) {
-        dwMins += m;
-        dwCount += 1;
-      } else {
-        gsMins += m;
-        gsCount += 1;
+      const isOnAir = Boolean(j.on_air_url);
+      if (isOnAir) totalOnAirCount += 1;
+
+      if (!catMap[code]) {
+        catMap[code] = { code, mins: 0, count: 0, onAirCount: 0 };
       }
+      catMap[code].mins += m;
+      catMap[code].count += 1;
+      if (isOnAir) catMap[code].onAirCount += 1;
 
       const dateRef = j.date_mix || j.date_deadline || j.date_glao;
       if (dateRef) {
@@ -872,8 +1131,14 @@ export default function App() {
       }
     });
 
-    const totalAllMins = gsMins + dwMins;
-    const mostWorkedType = gsMins >= dwMins ? 'GS (ซีรีส์ทั่วไป)' : 'DW (ซีรีส์พรีเมียม)';
+    const categoryBreakdown = Object.values(catMap).sort((a, b) => b.mins - a.mins);
+    const totalAllMins = categoryBreakdown.reduce((acc, item) => acc + item.mins, 0);
+
+    const topCat = categoryBreakdown[0];
+    const mostWorkedType = topCat
+      ? `${topCat.code}${categoryLabels[topCat.code] ? ` (${categoryLabels[topCat.code]})` : ''}`
+      : 'ยังไม่มีข้อมูล';
+
     const maxPeriodMins = Math.max(periodEarly, periodMid, periodLate);
     let mostActivePeriodName = 'ยังไม่มีข้อมูล';
     if (maxPeriodMins > 0) {
@@ -883,11 +1148,9 @@ export default function App() {
     }
 
     return {
-      gsMins,
-      gsCount,
-      dwMins,
-      dwCount,
+      categoryBreakdown,
       totalAllMins,
+      totalOnAirCount,
       mostWorkedType,
       periodEarly,
       periodMid,
@@ -895,7 +1158,7 @@ export default function App() {
       maxPeriodMins,
       mostActivePeriodName
     };
-  }, [filteredJobs]);
+  }, [filteredJobs, categoryLabels]);
 
   const handleCloseBillingCycle = () => {
     if (activeBilledJobs.length === 0) {
@@ -995,6 +1258,7 @@ export default function App() {
                           setSelectedWs(ws.name);
                           setMonthlyTarget(ws.monthly_target);
                           setTargetInput(ws.monthly_target.toString());
+                          setCategoryLabels(ws.category_labels || DEFAULT_CATEGORY_LABELS);
                           const localSaved = localStorage.getItem(`mix_target_stories_${ws.name}`);
                           const resolvedStories = ws.target_stories !== null && ws.target_stories !== undefined
                             ? ws.target_stories
@@ -1034,6 +1298,9 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <button onClick={() => setIsCategoryModalOpen(true)} title="จัดการประเภทเรื่อง / ค่าย" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
+              <Tag size={15} />
+            </button>
             <button onClick={handleRenameWorkspace} title="เปลี่ยนชื่อทีม" className="p-2 sm:p-2.5 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border border-[#262933] rounded-xl transition">
               <Edit3 size={15} />
             </button>
@@ -1542,25 +1809,23 @@ export default function App() {
                 </div>
               ) : (
                 currentCyclePendingJobs.map((job) => {
-                  const isDW = job.title.toUpperCase().startsWith('DW');
+                  const catCode = extractJobCategory(job.title);
+                  const catStyle = getCategoryStyle(catCode);
+                  const catFullName = categoryLabels[catCode];
                   const isCopied = copiedJobId === job.id;
+                  const hasOnAir = Boolean(job.on_air_url);
                   return (
                     <div 
                       key={job.id} 
-                      className={`rounded-2xl p-3 sm:p-4 transition border shadow-sm ${
-                        isDW 
-                          ? 'bg-gradient-to-b from-[#1b1510] to-[#14110e] border-amber-500/35 hover:border-amber-500/60' 
-                          : 'bg-gradient-to-b from-[#0e1620] to-[#0c1219] border-cyan-500/35 hover:border-cyan-500/60'
-                      } ${!job.isIncludedInBilling && 'opacity-60'}`}
+                      className={`rounded-2xl p-3 sm:p-4 transition border shadow-sm ${catStyle.card} ${!job.isIncludedInBilling && 'opacity-60'}`}
                     >
                       <div className="flex justify-between items-center gap-2">
                         <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
-                          <span className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${
-                            isDW 
-                              ? 'bg-amber-400/15 text-amber-300 border-amber-400/40' 
-                              : 'bg-cyan-400/15 text-cyan-300 border-cyan-400/40'
-                          }`}>
-                            {isDW ? 'DW' : 'GS'}
+                          <span 
+                            className={`text-[10px] font-black px-2 py-0.5 rounded-md border shrink-0 tracking-wider ${catStyle.badge}`}
+                            title={catFullName || catCode}
+                          >
+                            {catCode}
                           </span>
 
                           <span className="font-extrabold text-white text-base sm:text-lg tracking-wide truncate">
@@ -1569,6 +1834,25 @@ export default function App() {
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                          {hasOnAir ? (
+                            <a
+                              href={job.on_air_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="p-1.5 rounded-lg border transition bg-emerald-950/60 border-emerald-500/60 text-emerald-400 hover:bg-emerald-900/50 inline-flex items-center justify-center"
+                              title={`ออนแล้ว • เปิดหน้าเว็บ (${detectPlatformDisplay(job.on_air_url || '') || job.on_air_url})`}
+                            >
+                              <Tv size={13} />
+                            </a>
+                          ) : (
+                            <button 
+                              onClick={() => handleOpenOnAirModal(job)} 
+                              className="p-1.5 rounded-lg border transition bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] hover:text-white border-[#262933]"
+                              title="เพิ่มลิงก์ออนแอร์"
+                            >
+                              <Tv size={13} />
+                            </button>
+                          )}
                           <button 
                             onClick={() => handleCopyJob(job)} 
                             className={`p-1.5 rounded-lg border transition ${
@@ -1821,23 +2105,63 @@ export default function App() {
             </div>
 
             {(tableSubView === 'current' || tableSubView === 'billed') && (
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e94a4]" />
-                <input
-                  type="text"
-                  placeholder="ค้นหาชื่อเรื่อง หรือ ตอน..."
-                  value={tableSearchQuery}
-                  onChange={(e) => setTableSearchQuery(e.target.value)}
-                  className="w-full bg-[#12141a] border border-[#262933] rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
-                />
-                {tableSearchQuery && (
-                  <button 
-                    onClick={() => setTableSearchQuery('')}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e94a4] hover:text-white p-1"
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8e94a4]" />
+                  <input
+                    type="text"
+                    placeholder="ค้นหาชื่อเรื่อง รหัสค่าย หรือ ตอน..."
+                    value={tableSearchQuery}
+                    onChange={(e) => setTableSearchQuery(e.target.value)}
+                    className="w-full bg-[#12141a] border border-[#262933] rounded-xl pl-9 pr-8 py-2 text-xs text-white placeholder-[#555a66] focus:border-red-500 focus:outline-none"
+                  />
+                  {tableSearchQuery && (
+                    <button 
+                      onClick={() => setTableSearchQuery('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8e94a4] hover:text-white p-1"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+
+                {/* ตัวกรองสถานะออนแอร์ */}
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+                  <button
+                    type="button"
+                    onClick={() => setTableOnAirFilter('all')}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition shrink-0 ${
+                      tableOnAirFilter === 'all'
+                        ? 'bg-[#1c1f28] text-white border-white/25'
+                        : 'bg-[#12141a] text-[#8e94a4] border-[#262933] hover:text-white'
+                    }`}
                   >
-                    <X size={13} />
+                    ทั้งหมด ({tableOnAirCounts.all})
                   </button>
-                )}
+                  <button
+                    type="button"
+                    onClick={() => setTableOnAirFilter('on_air')}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition inline-flex items-center gap-1 shrink-0 ${
+                      tableOnAirFilter === 'on_air'
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/50'
+                        : 'bg-[#12141a] text-[#8e94a4] border-[#262933] hover:text-emerald-300'
+                    }`}
+                  >
+                    <Tv size={11} />
+                    <span>ออนแล้ว ({tableOnAirCounts.onAir})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTableOnAirFilter('not_on_air')}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-bold transition shrink-0 ${
+                      tableOnAirFilter === 'not_on_air'
+                        ? 'bg-[#1c1f28] text-amber-300 border-amber-500/40'
+                        : 'bg-[#12141a] text-[#8e94a4] border-[#262933] hover:text-white'
+                    }`}
+                  >
+                    ยังไม่ออน ({tableOnAirCounts.notOnAir})
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1873,26 +2197,25 @@ export default function App() {
                         <th className="py-2.5 px-2.5 text-center w-24 text-white bg-red-950/70 border-x border-red-500/30 font-black">มิกซ์</th>
                         <th className="py-2.5 px-2.5 text-center w-20">ซับ</th>
                         <th className="py-2.5 px-2.5 text-center w-24 text-amber-400 font-bold">เดดไลน์</th>
-                        <th className="py-2.5 px-3 text-center w-28">จัดการ</th>
+                        <th className="py-2.5 px-3 text-center w-32">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1c1f28]/60">
                       {searchedCurrentJobs.map((j, idx) => {
-                        const isDW = j.title.toUpperCase().startsWith('DW');
+                        const catCode = extractJobCategory(j.title);
+                        const catStyle = getCategoryStyle(catCode);
                         const isCopied = copiedJobId === j.id;
-                        const rowBg = isDW 
-                          ? (idx % 2 === 0 ? 'bg-amber-950/15 hover:bg-amber-900/25' : 'bg-amber-950/25 hover:bg-amber-900/35')
-                          : (idx % 2 === 0 ? 'bg-cyan-950/10 hover:bg-cyan-900/20' : 'bg-cyan-950/20 hover:bg-cyan-900/30');
+                        const hasOnAir = Boolean(j.on_air_url);
+                        const rowBg = idx % 2 === 0 ? catStyle.rowEven : catStyle.rowOdd;
 
                         return (
                           <tr key={j.id} className={`${rowBg} transition`}>
                             <td className="py-2.5 px-2 text-center">
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-                                isDW 
-                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' 
-                                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-                              }`}>
-                                {isDW ? 'DW' : 'GS'}
+                              <span 
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${catStyle.badge}`}
+                                title={categoryLabels[catCode] || catCode}
+                              >
+                                {catCode}
                               </span>
                             </td>
                             <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-36">
@@ -1932,6 +2255,25 @@ export default function App() {
                             </td>
                             <td className="py-2.5 px-3 text-center whitespace-nowrap">
                               <div className="flex items-center justify-center gap-1">
+                                {hasOnAir ? (
+                                  <a
+                                    href={j.on_air_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-1 rounded transition text-emerald-400 hover:text-emerald-300 inline-flex items-center justify-center"
+                                    title={`ออนแล้ว • เปิดหน้าเว็บ (${detectPlatformDisplay(j.on_air_url || '') || j.on_air_url})`}
+                                  >
+                                    <Tv size={13} />
+                                  </a>
+                                ) : (
+                                  <button 
+                                    onClick={() => handleOpenOnAirModal(j)} 
+                                    className="p-1 rounded transition text-[#8e94a4] hover:text-white" 
+                                    title="เพิ่มลิงก์ออนแอร์"
+                                  >
+                                    <Tv size={13} />
+                                  </button>
+                                )}
                                 <button 
                                   onClick={() => handleCopyJob(j)} 
                                   className={`p-1 rounded transition ${
@@ -1958,7 +2300,7 @@ export default function App() {
                       {searchedCurrentJobs.length === 0 && (
                         <tr>
                           <td colSpan={11} className="p-6 text-center text-[#555a66]">
-                            {tableSearchQuery ? 'ไม่พบงานที่ตรงกับคำค้นหา' : 'ไม่มีงานค้างในรอบนี้'}
+                            {tableSearchQuery || tableOnAirFilter !== 'all' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ไม่มีงานค้างในรอบนี้'}
                           </td>
                         </tr>
                       )}
@@ -1992,22 +2334,23 @@ export default function App() {
                         <th className="py-2.5 px-2 text-center w-12">Drive</th>
                         <th className="py-2.5 px-2.5 text-center w-24">วันมิกซ์</th>
                         <th className="py-2.5 px-2.5 text-center w-24">เดดไลน์</th>
-                        <th className="py-2.5 px-3 text-center w-32">จัดการ</th>
+                        <th className="py-2.5 px-3 text-center w-36">จัดการ</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#1c1f28]/60">
                       {searchedBilledJobs.map((j) => {
-                        const isDW = j.title.toUpperCase().startsWith('DW');
+                        const catCode = extractJobCategory(j.title);
+                        const catStyle = getCategoryStyle(catCode);
                         const isCopied = copiedJobId === j.id;
+                        const hasOnAir = Boolean(j.on_air_url);
                         return (
-                          <tr key={j.id} className="hover:bg-[#181a22]/60 transition opacity-80 hover:opacity-100">
+                          <tr key={j.id} className="hover:bg-[#181a22]/60 transition opacity-85 hover:opacity-100">
                             <td className="py-2.5 px-2 text-center">
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
-                                isDW 
-                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' 
-                                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-                              }`}>
-                                {isDW ? 'DW' : 'GS'}
+                              <span 
+                                className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${catStyle.badge}`}
+                                title={categoryLabels[catCode] || catCode}
+                              >
+                                {catCode}
                               </span>
                             </td>
                             <td className="py-2.5 pl-2 pr-1 font-bold text-white whitespace-nowrap w-24">
@@ -2038,6 +2381,25 @@ export default function App() {
                             </td>
                             <td className="py-2.5 px-3 text-center whitespace-nowrap">
                               <div className="flex items-center justify-center gap-1.5">
+                                {hasOnAir ? (
+                                  <a
+                                    href={j.on_air_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-1 rounded transition text-emerald-400 hover:text-emerald-300 inline-flex items-center justify-center"
+                                    title={`ออนแล้ว • เปิดหน้าเว็บ (${detectPlatformDisplay(j.on_air_url || '') || j.on_air_url})`}
+                                  >
+                                    <Tv size={13} />
+                                  </a>
+                                ) : (
+                                  <button 
+                                    onClick={() => handleOpenOnAirModal(j)} 
+                                    className="p-1 rounded transition text-[#8e94a4] hover:text-white" 
+                                    title="เพิ่มลิงก์ออนแอร์"
+                                  >
+                                    <Tv size={13} />
+                                  </button>
+                                )}
                                 <button 
                                   onClick={() => handleCopyJob(j)} 
                                   className={`p-1 rounded transition ${
@@ -2066,7 +2428,7 @@ export default function App() {
                       {searchedBilledJobs.length === 0 && (
                         <tr>
                           <td colSpan={8} className="p-6 text-center text-[#555a66]">
-                            {tableSearchQuery ? 'ไม่พบงานที่ตรงกับคำค้นหา' : 'ยังไม่มีงานที่ปิดรอบ'}
+                            {tableSearchQuery || tableOnAirFilter !== 'all' ? 'ไม่พบงานที่ตรงกับเงื่อนไข' : 'ยังไม่มีงานที่ปิดรอบ'}
                           </td>
                         </tr>
                       )}
@@ -2085,7 +2447,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
                       <span className="text-[11px] text-[#8e94a4]">ประเภทหลัก:</span>
-                      <p className="text-base font-black text-white mt-1">{analyticsData.mostWorkedType}</p>
+                      <p className="text-base font-black text-white mt-1 truncate">{analyticsData.mostWorkedType}</p>
                     </div>
                     <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3">
                       <span className="text-[11px] text-[#8e94a4]">ช่วงวันที่มิกซ์หนักสุด:</span>
@@ -2095,22 +2457,53 @@ export default function App() {
                 </div>
 
                 <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <span className="text-xs font-bold text-white">สัดส่วนนาทีงาน (GS vs DW)</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-white">สัดส่วนนาทีงานตามประเภท</span>
+                    <span className="text-[11px] text-emerald-400 font-bold">
+                      ออนแล้ว {analyticsData.totalOnAirCount} / {filteredJobs.length} เรื่อง
+                    </span>
+                  </div>
                   {analyticsData.totalAllMins > 0 ? (
-                    <div className="space-y-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-cyan-400 font-bold">GS: {analyticsData.gsMins} นาที ({analyticsData.gsCount} เรื่อง)</span>
-                        <span className="text-amber-400 font-bold">DW: {analyticsData.dwMins} นาที ({analyticsData.dwCount} เรื่อง)</span>
-                      </div>
+                    <div className="space-y-2.5">
                       <div className="w-full bg-[#1c1f28] h-3.5 rounded-full overflow-hidden flex">
-                        <div 
-                          className="bg-cyan-500 transition-all duration-500" 
-                          style={{ width: `${(analyticsData.gsMins / analyticsData.totalAllMins) * 100}%` }} 
-                        />
-                        <div 
-                          className="bg-amber-500 transition-all duration-500" 
-                          style={{ width: `${(analyticsData.dwMins / analyticsData.totalAllMins) * 100}%` }} 
-                        />
+                        {analyticsData.categoryBreakdown.map(item => {
+                          const style = getCategoryStyle(item.code);
+                          const pct = (item.mins / analyticsData.totalAllMins) * 100;
+                          return (
+                            <div
+                              key={item.code}
+                              className={`${style.bar} transition-all duration-500`}
+                              style={{ width: `${pct}%` }}
+                              title={`${item.code}: ${item.mins} นาที (${Math.round(pct)}%)`}
+                            />
+                          );
+                        })}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                        {analyticsData.categoryBreakdown.map(item => {
+                          const style = getCategoryStyle(item.code);
+                          const fullLabel = categoryLabels[item.code];
+                          return (
+                            <div
+                              key={item.code}
+                              className="bg-[#181a22] border border-[#262933] rounded-xl px-3 py-2 flex items-center justify-between text-xs"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded border shrink-0 ${style.badge}`}>
+                                  {item.code}
+                                </span>
+                                <span className="text-white font-bold truncate">
+                                  {fullLabel || item.code}
+                                </span>
+                              </div>
+                              <div className="text-right shrink-0 ml-2 font-mono">
+                                <span className={`font-bold ${style.text}`}>{item.mins} น.</span>
+                                <span className="text-[10px] text-[#8e94a4] ml-1">({item.count} เรื่อง)</span>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
@@ -2225,6 +2618,187 @@ export default function App() {
 
       </div>
 
+      {/* On-Air URL Modal: เพิ่มลิงก์ออนแอร์ของเรื่อง */}
+      {onAirModalJob && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-[#12141a] border border-emerald-500/40 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl">
+            <div className="flex justify-between items-center border-b border-[#262933] pb-2">
+              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Tv size={15} className="text-emerald-400" />
+                <span>ลิงก์ออนแอร์ • {onAirModalJob.title}</span>
+              </h4>
+              <button onClick={() => setOnAirModalJob(null)} className="text-[#8e94a4] hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            {onAirModalJob.on_air_url && (
+              <a
+                href={onAirModalJob.on_air_url}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 border border-emerald-500/50 font-bold py-2.5 px-3 rounded-xl text-xs transition flex items-center justify-center gap-1.5"
+              >
+                <ExternalLink size={14} className="text-emerald-400 shrink-0" />
+                <span>เปิดหน้าเว็บออนแอร์{detectKnownPlatform(onAirModalJob.on_air_url) ? ` (${detectKnownPlatform(onAirModalJob.on_air_url)})` : ''}</span>
+              </a>
+            )}
+
+            <div className="space-y-2.5 text-xs">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-[#8e94a4]">วางลิงก์หน้าเว็บของเรื่องนี้:</label>
+                  {onAirUrlInput.trim() && detectPlatformDisplay(onAirUrlInput.trim()) && (
+                    <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-500/40 px-1.5 py-0.5 rounded">
+                      {detectPlatformDisplay(onAirUrlInput.trim())}
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="url"
+                  value={onAirUrlInput}
+                  onChange={(e) => setOnAirUrlInput(e.target.value)}
+                  placeholder="https://..."
+                  className="w-full bg-[#0a0b0e] border border-[#262933] focus:border-emerald-500 focus:outline-none rounded-xl p-2.5 text-white font-mono"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveOnAirUrl();
+                  }}
+                />
+                <p className="text-[10px] text-[#6b7280] mt-1">
+                  * เมื่อบันทึกแล้ว ไอคอนทีวีจะเปลี่ยนเป็น <strong className="text-emerald-400">สีเขียว</strong> (คลิกไอคอนทีวีเพื่อเปิดเว็บได้ทันที หรือแก้ไขลิงก์ในหน้าแก้ไขงาน)
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-1">
+              {onAirModalJob.on_air_url && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setOnAirUrlInput('');
+                    await supabase
+                      .from('jobs')
+                      .update({ on_air_url: '' })
+                      .eq('id', onAirModalJob.id);
+                    setJobs(prev =>
+                      prev.map(j => (j.id === onAirModalJob.id ? { ...j, on_air_url: '' } : j))
+                    );
+                    setOnAirModalJob(null);
+                  }}
+                  className="px-3 py-2 bg-[#1c1f28] hover:bg-red-950/50 text-[#8e94a4] hover:text-red-400 border border-[#262933] rounded-xl text-xs font-bold transition"
+                  title="ลบลิงก์ออนแอร์"
+                >
+                  ลบลิงก์
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setOnAirModalJob(null)}
+                className="flex-1 bg-[#1c1f28] hover:bg-[#262a36] text-[#8e94a4] font-bold py-2 rounded-xl text-xs transition"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveOnAirUrl}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-xl text-xs transition shadow-md"
+              >
+                บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Category Manager Modal: จัดการรหัสประเภทเรื่อง / ค่าย */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-[#12141a] border border-red-500/40 rounded-2xl p-5 max-w-sm w-full space-y-3.5 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center border-b border-[#262933] pb-2 shrink-0">
+              <h4 className="text-sm font-bold text-white flex items-center gap-1.5">
+                <Tag size={15} className="text-red-500" />
+                <span>รหัสประเภทเรื่อง / ค่าย ({selectedWs})</span>
+              </h4>
+              <button onClick={() => setIsCategoryModalOpen(false)} className="text-[#8e94a4] hover:text-white">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs overflow-y-auto flex-1 pr-1">
+              <p className="text-[11px] text-[#8e94a4] leading-relaxed">
+                ระบบจะดึงตัวอักษรหน้าชื่อเรื่อง (เช่น <span className="text-white font-mono">DW</span>, <span className="text-white font-mono">GS</span>, <span className="text-white font-mono">RD</span>) มาสร้างป้ายอัตโนมัติ คุณสามารถกำหนดชื่อเต็มของแต่ละรหัสได้ที่นี่:
+              </p>
+
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  placeholder="รหัส (เช่น RD)"
+                  value={newCatCode}
+                  onChange={(e) => setNewCatCode(e.target.value.toUpperCase())}
+                  className="w-24 bg-[#0a0b0e] border border-[#262933] rounded-xl px-2.5 py-2 text-xs text-white font-mono uppercase focus:border-red-500 focus:outline-none"
+                />
+                <input
+                  type="text"
+                  placeholder="ชื่อเต็ม (เช่น ReelShort)"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  className="flex-1 min-w-0 bg-[#0a0b0e] border border-[#262933] rounded-xl px-3 py-2 text-xs text-white focus:border-red-500 focus:outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddCategoryItem();
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleAddCategoryItem}
+                  className="shrink-0 bg-red-600 hover:bg-red-500 text-white font-bold px-3 py-2 rounded-xl text-xs transition"
+                >
+                  เพิ่ม
+                </button>
+              </div>
+
+              <div className="space-y-1.5 pt-1">
+                {Object.entries(categoryLabels).map(([code, label]) => {
+                  const style = getCategoryStyle(code);
+                  return (
+                    <div
+                      key={code}
+                      className="bg-[#181a22] border border-[#262933] rounded-xl px-3 py-2 flex items-center justify-between gap-2"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded border shrink-0 ${style.badge}`}>
+                          {code}
+                        </span>
+                        <span className="text-white font-bold truncate">{label}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveCategoryItem(code)}
+                        className="text-[#555a66] hover:text-red-400 p-1 transition shrink-0"
+                        title="ลบรหัสนี้"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {Object.keys(categoryLabels).length === 0 && (
+                  <p className="text-center text-[#555a66] py-3">ยังไม่มีรายการกำหนดชื่อค่าย</p>
+                )}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsCategoryModalOpen(false)}
+              className="w-full bg-[#1c1f28] hover:bg-[#262a36] text-white font-bold py-2.5 rounded-xl text-xs transition border border-[#262933] shrink-0"
+            >
+              เสร็จสิ้น
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Edit Job Modal: ช่องใส่วันที่แบบไว (วางทั้งแถวจาก Sheet) + แสดงผล 5 ขั้นตอน + พับเก็บช่องเลือกแบบละเอียด */}
       {editingJob && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -2254,6 +2828,17 @@ export default function App() {
                   value={editingJob.drive_url || ''}
                   onChange={(e) => setEditingJob({ ...editingJob, drive_url: e.target.value })}
                   placeholder="https://drive.google.com/..."
+                  className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="text-[#8e94a4] block mb-1">ลิงก์ออนแอร์ (ลบออกเพื่อยกเลิกสถานะออนแล้ว)</label>
+                <input 
+                  type="text" 
+                  value={editingJob.on_air_url || ''}
+                  onChange={(e) => setEditingJob({ ...editingJob, on_air_url: e.target.value })}
+                  placeholder="https://..."
                   className="w-full bg-[#0a0b0e] border border-[#262933] rounded-lg p-2 text-white"
                 />
               </div>
