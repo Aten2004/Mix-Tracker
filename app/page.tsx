@@ -1266,16 +1266,33 @@ export default function App() {
           tax_amount: currentTax,
           net_income: currentNet,
           job_count: activeBilledJobs.length,
-          jobIds: activeBilledJobs.map(j => j.id)
+          job_ids: activeBilledJobs.map(j => j.id)
         };
 
-        await supabase.from('billing_cycles').insert([newCycle]);
+        const { error: cycleError } = await supabase.from('billing_cycles').insert([newCycle]);
+        if (cycleError) {
+          setDialogState({
+            type: 'alert',
+            title: 'บันทึกประวัติปิดรอบไม่สำเร็จ',
+            desc: cycleError.message
+          });
+          return;
+        }
         
         const targetIds = activeBilledJobs.map(j => j.id);
-        await supabase.from('jobs').update({
+        const { error: jobError } = await supabase.from('jobs').update({
           status: 'billed',
           billing_cycle_id: cycleId
         }).in('id', targetIds);
+
+        if (jobError) {
+          setDialogState({
+            type: 'alert',
+            title: 'อัปเดตสถานะงานไม่สำเร็จ',
+            desc: jobError.message
+          });
+          return;
+        }
 
         fetchData();
         setDialogState({
@@ -1990,13 +2007,14 @@ export default function App() {
 
                         <button 
                           onClick={() => toggleJobBilling(job)}
+                          title={job.isIncludedInBilling ? 'กำลังนับยอดรอบนี้อยู่ (กดเพื่อพักไว้รอบหน้า)' : 'พักไว้รอบหน้าอยู่ (กดเพื่อนับยอดรอบนี้)'}
                           className={`text-[11px] sm:text-xs px-2.5 py-1 rounded-xl border font-semibold whitespace-nowrap transition shrink-0 ${
                             job.isIncludedInBilling 
                               ? 'border-red-500/50 text-red-400 bg-red-950/40 hover:bg-red-950/60' 
-                              : 'border-[#262933] text-[#555a66] bg-[#181a22] hover:bg-[#262a36]'
+                              : 'border-[#262933] text-[#8e94a4] bg-[#181a22] hover:bg-[#262a36]'
                           }`}
                         >
-                          {job.isIncludedInBilling ? 'คิดเงินรอบนี้' : 'ยังไม่คิดเงิน'}
+                          {job.isIncludedInBilling ? 'นับยอดรอบนี้' : 'พักไว้รอบหน้า'}
                         </button>
                       </div>
 
@@ -2551,59 +2569,65 @@ export default function App() {
             )}
 
             {tableSubView === 'analytics' && (
-              <div className="space-y-4">
+              <div className="space-y-3 sm:space-y-4">
                 {/* 1. ภาพรวมรายได้และผลงานสะสมทั้งหมด */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-3.5 sm:p-4 space-y-1">
-                    <span className="text-[11px] text-[#8e94a4] flex items-center gap-1">
-                      <DollarSign size={13} className="text-red-400" /> รายได้สุทธิสะสม (หัก 3%)
+                <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5 sm:gap-3">
+                  <div className="bg-[#12141a] border border-red-900/40 rounded-2xl p-3.5 sm:p-4 space-y-1.5 min-w-0">
+                    <span className="text-[11px] sm:text-xs text-[#8e94a4] flex items-center gap-1.5 min-w-0">
+                      <DollarSign size={14} className="text-red-400 shrink-0" />
+                      <span className="truncate">รายได้สุทธิสะสม (หัก 3%)</span>
                     </span>
-                    <p className="text-xl sm:text-2xl font-black text-red-500 font-mono truncate">
+                    <p className="text-2xl sm:text-3xl font-black text-red-500 font-mono truncate">
                       ฿{Math.round(analyticsData.totalAllNet).toLocaleString()}
                     </p>
-                    <p className="text-[10px] text-[#8e94a4] truncate">
+                    <p className="text-[11px] text-[#8e94a4] truncate">
                       รวม {analyticsData.totalAllMins.toLocaleString()} นาที ({analyticsData.totalJobsCount} เรื่อง)
                     </p>
                   </div>
 
-                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-1">
-                    <span className="text-[11px] text-[#8e94a4] flex items-center gap-1">
-                      <Clock size={13} className="text-cyan-400" /> ค่าเฉลี่ยต่อ 1 เรื่อง
+                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-1.5 min-w-0">
+                    <span className="text-[11px] sm:text-xs text-[#8e94a4] flex items-center gap-1.5 min-w-0">
+                      <Clock size={14} className="text-cyan-400 shrink-0" />
+                      <span className="truncate">ค่าเฉลี่ยต่อ 1 เรื่อง</span>
                     </span>
-                    <p className="text-xl sm:text-2xl font-black text-white font-mono truncate">
-                      ~{analyticsData.avgMinsPerJob} <span className="text-xs font-normal text-[#8e94a4]">นาที</span>
+                    <p className="text-2xl sm:text-3xl font-black text-white font-mono truncate">
+                      ~{analyticsData.avgMinsPerJob} <span className="text-xs sm:text-sm font-normal text-[#8e94a4]">นาที</span>
                     </p>
-                    <p className="text-[10px] text-emerald-400 font-semibold truncate">
+                    <p className="text-[11px] text-emerald-400 font-semibold truncate">
                       เฉลี่ย ~฿{analyticsData.avgNetPerJob.toLocaleString()}/เรื่อง
                     </p>
                   </div>
                 </div>
 
-                {/* 2. สรุปสถิติเด่น (ประเภทหลัก / ออนแอร์ / ช่วงงานชุก) */}
-                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
+                {/* 2. สรุปสถิติเด่น (ประเภทหลัก / ออนแอร์) */}
+                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-2.5 sm:space-y-3">
                   <h4 className="text-xs font-bold text-red-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <TrendingUp size={15} /> ภาพรวมการทำงานของทีม
+                    <TrendingUp size={15} className="shrink-0" />
+                    <span>ภาพรวมการทำงานของทีม</span>
                   </h4>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5">
-                      <span className="text-[10px] text-[#8e94a4] block">ค่ายหลัก:</span>
-                      <p className="text-xs sm:text-sm font-black text-white mt-1 truncate">{analyticsData.mostWorkedType}</p>
+                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5">
+                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 min-w-0">
+                      <span className="text-[11px] text-[#8e94a4] block">ค่ายหลัก:</span>
+                      <p className="text-sm sm:text-base font-black text-white mt-1 truncate">{analyticsData.mostWorkedType}</p>
                     </div>
-                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5">
-                      <span className="text-[10px] text-[#8e94a4] block">ออนแอร์แล้ว:</span>
-                      <p className="text-xs sm:text-sm font-black text-emerald-400 mt-1 font-mono truncate">
-                        {analyticsData.totalOnAirCount}/{analyticsData.totalJobsCount} <span className="text-[10px] font-normal">({analyticsData.onAirPercent}%)</span>
+                    <div className="bg-[#181a22] border border-[#262933] rounded-xl p-3 min-w-0">
+                      <span className="text-[11px] text-[#8e94a4] block">ออนแอร์แล้ว:</span>
+                      <p className="text-sm sm:text-base font-black text-emerald-400 mt-1 font-mono truncate">
+                        {analyticsData.totalOnAirCount}/{analyticsData.totalJobsCount} <span className="text-xs font-normal">({analyticsData.onAirPercent}%)</span>
                       </p>
                     </div>
-
                   </div>
                 </div>
 
                 {/* 3. สถิติรายเดือนเทียบเป้าหมาย */}
-                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <div className="flex justify-between items-center">
+                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-3">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5">
                     <span className="text-xs font-bold text-white flex items-center gap-1.5">
-                      <Layers size={14} className="text-red-400" /> ยอดสุทธิรายเดือน (เทียบเป้า ฿{monthlyTarget.toLocaleString()})
+                      <Layers size={14} className="text-red-400 shrink-0" />
+                      <span>ยอดสุทธิรายเดือน</span>
+                    </span>
+                    <span className="text-[11px] text-[#8e94a4] font-mono">
+                      เทียบเป้า ฿{monthlyTarget.toLocaleString()}
                     </span>
                   </div>
                   {analyticsData.monthlyTrend.length > 0 ? (
@@ -2613,17 +2637,17 @@ export default function App() {
                         const hitTarget = m.netIncome >= monthlyTarget && monthlyTarget > 0;
                         return (
                           <div key={m.key} className="space-y-1">
-                            <div className="flex justify-between items-center text-xs">
-                              <div className="flex items-center gap-1.5">
-                                <span className="font-bold text-white font-mono">{m.label}</span>
-                                <span className="text-[10px] text-[#8e94a4]">({m.count} เรื่อง • {m.mins} น.)</span>
+                            <div className="flex justify-between items-center gap-2 text-xs">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                                <span className="font-bold text-white font-mono shrink-0">{m.label}</span>
+                                <span className="text-[10px] sm:text-[11px] text-[#8e94a4] truncate">({m.count} เรื่อง • {m.mins} น.)</span>
                                 {hitTarget && (
-                                  <span className="text-[9px] bg-emerald-950/70 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold">
+                                  <span className="text-[9px] bg-emerald-950/70 text-emerald-400 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold shrink-0">
                                     ถึงเป้า
                                   </span>
                                 )}
                               </div>
-                              <span className={`font-mono font-bold ${hitTarget ? 'text-emerald-400' : 'text-red-400'}`}>
+                              <span className={`font-mono font-bold shrink-0 ${hitTarget ? 'text-emerald-400' : 'text-red-400'}`}>
                                 ฿{Math.round(m.netIncome).toLocaleString()}
                               </span>
                             </div>
@@ -2645,8 +2669,8 @@ export default function App() {
                 </div>
 
                 {/* 4. สัดส่วนนาทีและรายได้ตามประเภทค่าย */}
-                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-3">
-                  <div className="flex justify-between items-center">
+                <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-3">
+                  <div className="flex flex-wrap justify-between items-center gap-1.5">
                     <span className="text-xs font-bold text-white">สัดส่วนผลงานแยกตามรหัสค่าย</span>
                     <span className="text-[11px] text-[#8e94a4] font-mono">
                       รวม {analyticsData.totalAllMins.toLocaleString()} นาที
@@ -2669,7 +2693,7 @@ export default function App() {
                         })}
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
                         {analyticsData.categoryBreakdown.map(item => {
                           const style = getCategoryStyle(item.code);
                           const fullLabel = categoryLabels[item.code];
@@ -2678,7 +2702,7 @@ export default function App() {
                           return (
                             <div
                               key={item.code}
-                              className="bg-[#181a22] border border-[#262933] rounded-xl p-2.5 space-y-1.5 text-xs"
+                              className="bg-[#181a22] border border-[#262933] rounded-xl p-3 space-y-1.5 text-xs min-w-0"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-1.5 min-w-0">
@@ -2693,13 +2717,13 @@ export default function App() {
                                   {pct}%
                                 </span>
                               </div>
-                              <div className="flex justify-between text-[11px] text-[#8e94a4] font-mono pt-1 border-t border-[#262933]/70">
-                                <span>{item.mins} น. ({item.count} เรื่อง)</span>
-                                <span className="text-white font-semibold">฿{Math.round(item.netIncome).toLocaleString()}</span>
+                              <div className="flex justify-between items-center gap-2 text-[11px] text-[#8e94a4] font-mono pt-1.5 border-t border-[#262933]/70">
+                                <span className="truncate">{item.mins} น. ({item.count} เรื่อง)</span>
+                                <span className="text-white font-semibold shrink-0">฿{Math.round(item.netIncome).toLocaleString()}</span>
                               </div>
-                              <div className="flex justify-between text-[10px] text-[#6b7280]">
-                                <span>เฉลี่ย ~{avgCatMins} น./เรื่อง</span>
-                                <span className="text-emerald-400/90">ออนแล้ว {item.onAirCount}/{item.count}</span>
+                              <div className="flex justify-between items-center gap-2 text-[10px] text-[#6b7280]">
+                                <span className="truncate">เฉลี่ย ~{avgCatMins} น./เรื่อง</span>
+                                <span className="text-emerald-400/90 shrink-0">ออนแล้ว {item.onAirCount}/{item.count}</span>
                               </div>
                             </div>
                           );
@@ -2713,7 +2737,7 @@ export default function App() {
 
                 {/* 5. การกระจายงานตามช่วงวันที่ในเดือน */}
                 {analyticsData.maxPeriodMins > 0 && (
-                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-4 space-y-2.5">
+                  <div className="bg-[#12141a] border border-[#262933] rounded-2xl p-3.5 sm:p-4 space-y-2.5">
                     <span className="text-xs font-bold text-white block">ปริมาณงานตามช่วงวันที่ (วันมิกซ์)</span>
                     {[
                       { label: 'ต้นเดือน (วันที่ 1–10)', mins: analyticsData.periodEarly, count: analyticsData.periodEarlyCount },
@@ -2724,9 +2748,9 @@ export default function App() {
                       const isPeak = p.mins === analyticsData.maxPeriodMins && p.mins > 0;
                       return (
                         <div key={p.label} className="space-y-1 text-xs">
-                          <div className="flex justify-between">
-                            <span className={isPeak ? 'text-amber-300 font-bold' : 'text-[#a6adbb]'}>{p.label}</span>
-                            <span className="font-mono text-white font-semibold">
+                          <div className="flex justify-between items-center gap-2">
+                            <span className={`truncate ${isPeak ? 'text-amber-300 font-bold' : 'text-[#a6adbb]'}`}>{p.label}</span>
+                            <span className="font-mono text-white font-semibold shrink-0">
                               {p.mins} นาที <span className="text-[10px] text-[#8e94a4]">({p.count} เรื่อง)</span>
                             </span>
                           </div>
