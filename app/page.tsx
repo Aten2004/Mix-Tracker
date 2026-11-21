@@ -1097,7 +1097,7 @@ export default function App() {
     const totalGrossVal = sumTotal * 15;
     const totalNetVal = totalGrossVal * 0.97;
 
-    const output = `${lines.join('\n')}\n\nรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGrossVal.toLocaleString()}\nยอดสุทธิ: ฿${totalNetVal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
+    const output = `${lines.join('\n')}\n\nรวมนาที: ${sumString}\nยอดเต็ม: ฿${totalGrossVal.toLocaleString()}\nยอดจริง: ฿${totalNetVal.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
     
     navigator.clipboard.writeText(output);
     setDialogState({
@@ -1251,7 +1251,7 @@ export default function App() {
     setDialogState({
       type: 'confirm',
       title: 'ยืนยันการปิดรอบคำนวณเงิน',
-      desc: `ยืนยันการปิดรอบคำนวณเงิน ${activeBilledJobs.length} เรื่อง รวม ${currentTotalMins} นาที\nยอดจริง ฿${currentNet.toLocaleString()} หรือไม่?`,
+      desc: `ยืนยันการปิดรอบคำนวณเงิน ${activeBilledJobs.length} เรื่อง รวม ${currentTotalMins} นาที\nยอดสุทธิ ฿${currentNet.toLocaleString()} หรือไม่?`,
       confirmText: 'ปิดรอบทันที',
       onConfirm: async () => {
         const cycleId = Date.now().toString();
