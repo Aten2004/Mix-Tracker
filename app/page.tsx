@@ -1669,7 +1669,46 @@ export default function App() {
           {isNotesCollapsed && (
             <div className="pt-2 border-t border-[#1c1f28]">
               {filteredNotes.length > 0 ? (
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                <div
+                  onWheel={(e) => {
+                    if (e.deltaY !== 0) {
+                      e.currentTarget.scrollLeft += e.deltaY;
+                    }
+                  }}
+                  onMouseDown={(e) => {
+                    const el = e.currentTarget;
+                    el.dataset.isDown = 'true';
+                    el.dataset.dragged = 'false';
+                    el.dataset.startX = String(e.pageX - el.offsetLeft);
+                    el.dataset.scrollLeft = String(el.scrollLeft);
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.dataset.isDown = 'false';
+                  }}
+                  onMouseUp={(e) => {
+                    e.currentTarget.dataset.isDown = 'false';
+                  }}
+                  onMouseMove={(e) => {
+                    const el = e.currentTarget;
+                    if (el.dataset.isDown !== 'true') return;
+                    e.preventDefault();
+                    const x = e.pageX - el.offsetLeft;
+                    const startX = Number(el.dataset.startX || 0);
+                    if (Math.abs(x - startX) > 4) {
+                      el.dataset.dragged = 'true';
+                    }
+                    const walk = (x - startX) * 1.5;
+                    el.scrollLeft = Number(el.dataset.scrollLeft || 0) - walk;
+                  }}
+                  onClickCapture={(e) => {
+                    if (e.currentTarget.dataset.dragged === 'true') {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      e.currentTarget.dataset.dragged = 'false';
+                    }
+                  }}
+                  className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-thin cursor-grab active:cursor-grabbing"
+                >
                   {filteredNotes.map(n => {
                     const urlMatch = n.content.match(/(https?:\/\/[^\s]+)/);
                     if (urlMatch) {
@@ -1679,6 +1718,7 @@ export default function App() {
                           href={urlMatch[0]}
                           target="_blank"
                           rel="noopener noreferrer"
+                          draggable={false}
                           className="shrink-0 inline-flex items-center gap-1 text-[11px] bg-red-950/40 hover:bg-red-900/60 text-red-300 border border-red-900/50 px-2.5 py-1 rounded-xl transition font-medium"
                           title={n.content}
                         >
@@ -1689,6 +1729,8 @@ export default function App() {
                     return (
                       <button 
                         key={n.id} 
+                        type="button"
+                        draggable={false}
                         onClick={() => setEditingNote(n)}
                         className="shrink-0 text-[11px] bg-[#181a22] hover:bg-[#262a36] text-[#8e94a4] hover:text-white px-2.5 py-1 rounded-xl border border-[#262933] transition"
                       >
